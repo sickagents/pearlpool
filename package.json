@@ -1,0 +1,35 @@
+{
+  "name": "pearlpool",
+  "version": "2.1.0",
+  "description": "Open-source PRL mining pool with stratum, PPLNS payouts, real on-chain block submission, and live dashboard",
+  "main": "src/pool.js",
+  "scripts": {
+    "start": "node src/pool.js",
+    "test": "node test.js"
+  },
+  "keywords": [
+    "prl",
+    "pearl",
+    "mining",
+    "pool",
+    "stratum",
+    "pplns",
+    "cryptocurrency",
+    "vardiff",
+    "blockchain"
+  ],
+  "author": "PearlPool Contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EasyPoolPearl/pearlpool.git"
+  },
+  "bugs": {
+    "url": "https://github.com/EasyPoolPearl/pearlpool/issues"
+  },
+  "homepage": "https://github.com/EasyPoolPearl/pearlpool",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {}
+}
