@@ -204,13 +204,13 @@ os.chdir(os.path.expanduser('~'))
 os.chdir('babel-hub')
 
 # Install Node.js 18+ if not present
-node_check = subprocess.run(['node', '--version'], capture_output=True, text=True)
-if node_check.returncode != 0:
+try:
+    node_ver = subprocess.run(['node', '--version'], capture_output=True, text=True)
+    print(f"Node.js {node_ver.stdout.strip()} already installed")
+except FileNotFoundError:
     print("Installing Node.js...")
     get_ipython().system('curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -')
     get_ipython().system('sudo apt-get install -y nodejs')
-else:
-    print(f"Node.js {node_check.stdout.strip()} already installed")
 print("Ready.")
 ```
 
