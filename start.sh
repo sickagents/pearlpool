@@ -1,5 +1,5 @@
 #!/bin/bash
-# PearlPool launcher — edit the wallet address below before running.
+# BabelHub launcher — edit the wallet address below before running.
 #
 # This wallet receives the operator fee (1.0% base + 0.5% tx-fee reserve
 # = 1.5% total) from every batch processed by the pool.  See

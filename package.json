@@ -1,5 +1,5 @@
 {
-  "name": "pearlpool",
+  "name": "babel-hub",
   "version": "2.1.0",
   "description": "Open-source PRL compute cluster with stratum, PDLS distributions, real on-chain block submission, and live dashboard",
   "main": "src/pool.js",
@@ -18,16 +18,16 @@
     "vardiff",
     "blockchain"
   ],
-  "author": "PearlPool Contributors",
+  "author": "BabelHub Contributors",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/EasyPoolPearl/pearlpool.git"
+    "url": "https://github.com/EasyPoolPearl/babel-hub.git"
   },
   "bugs": {
-    "url": "https://github.com/EasyPoolPearl/pearlpool/issues"
+    "url": "https://github.com/EasyPoolPearl/babel-hub/issues"
   },
-  "homepage": "https://github.com/EasyPoolPearl/pearlpool",
+  "homepage": "https://github.com/EasyPoolPearl/babel-hub",
   "engines": {
     "node": ">=18.0.0"
   },

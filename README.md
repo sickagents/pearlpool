@@ -1,12 +1,12 @@
-# PearlPool — Experimental PRL Compute Cluster
+# BabelHub — Experimental PRL Compute Cluster
 
-> ⚠️ **Community project** — PearlPool is an independent, open-source
+> ⚠️ **Community project** — BabelHub is an independent, open-source
 > compute-cluster implementation for the Pearl (PRL) network.  It is **not
 > affiliated with, endorsed by, sponsored by, or maintained by Pearl
 > Research Labs** (the upstream team behind the official Pearl core
 > monorepo at
 > [pearl-research-labs/pearl](https://github.com/pearl-research-labs/pearl)).
-> PearlPool is a hobby/portfolio project.  No official endorsement is
+> BabelHub is a hobby/portfolio project.  No official endorsement is
 > implied.  For the canonical Pearl protocol, see the upstream repo.
 
 ![Version](https://img.shields.io/badge/version-2.1.0-blue)
@@ -22,7 +22,7 @@
 > integrated testing against a live PRL regtest node) is tracked in
 > [TODO.md](TODO.md) and [docs/ROADMAP.md](docs/ROADMAP.md).
 >
-> If you are evaluating PearlPool for production use, please read the
+> If you are evaluating BabelHub for production use, please read the
 > [Status & Roadmap](#status--roadmap), [Known Limitations](#known-limitations),
 > and [Production Safety Notes](#production-safety-notes) sections below
 > before deploying against a real throughput fleet.
@@ -38,10 +38,10 @@ and historical-data bootstrap for fresh deployments.  See the
 
 ## Status & Roadmap
 
-> **PearlPool is an experimental community pool implementation for PRL.**
+> **BabelHub is an experimental community pool implementation for PRL.**
 > **It is not affiliated with Pearl Research Labs.**
 
-PearlPool 2.1.0 ships the **core pool mechanics** (Stratum server, PDLS
+BabelHub 2.1.0 ships the **core pool mechanics** (Stratum server, PDLS
 engine, vardiff, block scanner, dashboard, real on-chain RPC) and
 passes its own test suite, but the project is deliberately
 **experimental**.  Items still on the path to "production-grade" are
@@ -83,7 +83,7 @@ tracked in [TODO.md](TODO.md) and [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Known Limitations
 
-Read this section before pointing a real throughput fleet at PearlPool.
+Read this section before pointing a real throughput fleet at BabelHub.
 
 1. **Hash function.** Unit validation uses `SHA-256d` (Bitcoin-style
    double SHA-256) as a placeholder.  Pearl (PRL) historically uses
@@ -112,11 +112,11 @@ Read this section before pointing a real throughput fleet at PearlPool.
 
 ## Production Safety Notes
 
-PearlPool is a hobby/portfolio project and ships with a handful of
+BabelHub is a hobby/portfolio project and ships with a handful of
 "developer-friendly" defaults.  Read this section before exposing it
 to a real throughput fleet.
 
-1. **Persistence is a JSON snapshot, not a database.** PearlPool
+1. **Persistence is a JSON snapshot, not a database.** BabelHub
    serialises workers / blocks / distributions / throughput history to
    `data/state.json` (atomic write — see `lib/persistence/json-snapshot.js`)
    every 60 seconds and on clean shutdown.  This is enough to survive
@@ -133,7 +133,7 @@ to a real throughput fleet.
    derived from public PRL chain data (see
    [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md)) but is not a record of
    actual compute activity.  Operators who want a clean dashboard
-   should pass `--no-bootstrap` or set `PEARLPOOL_BOOTSTRAP=off`.
+   should pass `--no-bootstrap` or set `BABELHUB_BOOTSTRAP=off`.
 
 3. **Stratum and the HTTP API are plaintext.** This is a hobby
    project.  No TLS, no auth on `/api/*`.  Bind the HTTP API to
@@ -144,7 +144,7 @@ to a real throughput fleet.
    client can fill the in-memory unit queue.  For public deployment,
    rate-limit at the network layer.
 
-5. **This is not the official Pearl pool.** PearlPool is community
+5. **This is not the official Pearl pool.** BabelHub is community
    software (see the disclaimer at the top of this file).  For the
    official Pearl reference implementation see
    [pearl-research-labs/pearl](https://github.com/pearl-research-labs/pearl).
@@ -169,8 +169,8 @@ to a real throughput fleet.
 
 ```bash
 # Clone and run
-git clone https://github.com/sickagents/pearlpool.git
-cd pearlpool
+git clone https://github.com/sickagents/babel-hub.git
+cd babel-hub
 chmod +x start.sh
 ./start.sh
 ```
@@ -192,7 +192,7 @@ the 1.5% operator fee from every block.  See
 
 ## Quick Start (Jupyter Notebook)
 
-Run pearlpool from a Jupyter notebook on any VPS:
+Run babel-hub from a Jupyter notebook on any VPS:
 
 ### Step 1 — Clone
 
@@ -200,8 +200,8 @@ Run pearlpool from a Jupyter notebook on any VPS:
 import os, subprocess, sys
 
 os.chdir(os.path.expanduser('~'))
-!rm -rf pearlpool && git clone https://github.com/sickagents/pearlpool.git
-os.chdir('pearlpool')
+!rm -rf babel-hub && git clone https://github.com/sickagents/babel-hub.git
+os.chdir('babel-hub')
 print("Cloned.")
 ```
 
@@ -210,7 +210,7 @@ print("Cloned.")
 ```python
 import os
 
-os.chdir(os.path.expanduser('~/pearlpool'))
+os.chdir(os.path.expanduser('~/babel-hub'))
 
 # ============================================================
 # EDIT THESE — never commit real values to GitHub
@@ -221,12 +221,12 @@ STRATUM_PORT    = "3333"
 API_PORT        = "8080"
 # ============================================================
 
-pool_env = f"""PEARLPOOL_WALLET={OPERATOR_WALLET}
-PEARLPOOL_PORT={STRATUM_PORT}
-PEARLPOOL_API_PORT={API_PORT}
-PEARLPOOL_RPC_URL={RPC_URL}
-PEARLPOOL_FEE=0.01
-PEARLPOOL_TX_RESERVE=0.005
+pool_env = f"""BABELHUB_WALLET={OPERATOR_WALLET}
+BABELHUB_PORT={STRATUM_PORT}
+BABELHUB_API_PORT={API_PORT}
+BABELHUB_RPC_URL={RPC_URL}
+BABELHUB_FEE=0.01
+BABELHUB_TX_RESERVE=0.005
 """
 
 with open('pool.env', 'w') as f:
@@ -239,21 +239,21 @@ print("pool.env created.")
 ```python
 import os, subprocess, time
 
-os.chdir(os.path.expanduser('~/pearlpool'))
+os.chdir(os.path.expanduser('~/babel-hub'))
 
 proc = subprocess.Popen(
     ['node', 'src/pool.js'],
-    stdout=open('/tmp/pearlpool.log', 'w'),
+    stdout=open('/tmp/babel-hub.log', 'w'),
     stderr=subprocess.STDOUT,
     start_new_session=True
 )
 
-with open('/tmp/pearlpool.pid', 'w') as f:
+with open('/tmp/babel-hub.pid', 'w') as f:
     f.write(str(proc.pid))
 
 time.sleep(3)
-get_ipython().system('tail -20 /tmp/pearlpool.log')
-print(f"\nPearlPool PID: {proc.pid}")
+get_ipython().system('tail -20 /tmp/babel-hub.log')
+print(f"\nBabelHub PID: {proc.pid}")
 ```
 
 ### Step 4 — Verify
@@ -286,8 +286,8 @@ except Exception as e:
 ### Step 5 — Open Firewall
 
 ```python
-get_ipython().system('sudo ufw allow 3333/tcp comment "PearlPool stratum"')
-get_ipython().system('sudo ufw allow 8080/tcp comment "PearlPool dashboard"')
+get_ipython().system('sudo ufw allow 3333/tcp comment "BabelHub stratum"')
+get_ipython().system('sudo ufw allow 8080/tcp comment "BabelHub dashboard"')
 print("Firewall rules added.")
 ```
 
@@ -298,7 +298,7 @@ import os, signal
 
 def pool_status():
     try:
-        with open('/tmp/pearlpool.pid') as f:
+        with open('/tmp/babel-hub.pid') as f:
             pid = int(f.read().strip())
         os.kill(pid, 0)
         print(f"Running (PID {pid})")
@@ -306,11 +306,11 @@ def pool_status():
         print("Not running")
 
 def pool_log(n=30):
-    get_ipython().system(f'tail -{n} /tmp/pearlpool.log')
+    get_ipython().system(f'tail -{n} /tmp/babel-hub.log')
 
 def pool_stop():
     try:
-        with open('/tmp/pearlpool.pid') as f:
+        with open('/tmp/babel-hub.pid') as f:
             pid = int(f.read().strip())
         os.kill(pid, signal.SIGTERM)
         print(f"Stopped (PID {pid})")
@@ -325,7 +325,7 @@ print("  pool_stop()     — Stop pool")
 
 ### Step 7 — Tell Worker Your IP
 
-After pearlpool is running, give your VPS IP to the worker config:
+After babel-hub is running, give your VPS IP to the worker config:
 
 ```
 Worker config.env:
@@ -364,23 +364,23 @@ node src/pool.js \
   --fee 0.01 \
   --tx-fee-reserve 0.005 \
   --min-distribution 100000000 \
-  --data-dir /var/lib/pearlpool
+  --data-dir /var/lib/babel-hub
 ```
 
 The same flags can be passed as environment variables:
 
 ```bash
-export PEARLPOOL_WALLET=prl1pYOURADDR
-export PEARLPOOL_FEE=0.01
-export PEARLPOOL_TX_RESERVE=0.005
-export PEARLPOOL_RPC_USER=pearlpool
-export PEARLPOOL_RPC_PASSWORD=changeme
+export BABELHUB_WALLET=prl1pYOURADDR
+export BABELHUB_FEE=0.01
+export BABELHUB_TX_RESERVE=0.005
+export BABELHUB_RPC_USER=babel-hub
+export BABELHUB_RPC_PASSWORD=changeme
 ./start.sh
 ```
 
 ## How PDLS Works
 
-PearlPool uses Pay-Per-Last-N-Units (PDLS) to distribute batch rewards:
+BabelHub uses Pay-Per-Last-N-Units (PDLS) to distribute batch rewards:
 
 1. Workers submit **units** — partial proof-of-work that demonstrates
    compute effort.
@@ -404,7 +404,7 @@ you lose credit for earlier units.
 
 ## Fee structure
 
-PearlPool takes a total of **1.5%** off the top of every batch reward:
+BabelHub takes a total of **1.5%** off the top of every batch reward:
 
 - **1.0%** base operator fee (`--fee`).
 - **0.5%** on-chain transaction fee reserve (`--tx-fee-reserve`) used
@@ -498,7 +498,7 @@ Full architecture overview with data-flow diagrams:
   calculation with worked examples.
 - [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md) — what the historical-data
   bootstrap does and how to disable it.
-- [docs/RPC_SETUP.md](docs/RPC_SETUP.md) — connecting PearlPool to a
+- [docs/RPC_SETUP.md](docs/RPC_SETUP.md) — connecting BabelHub to a
   PRL daemon, sample RPC config, retry / error handling.
 - [docs/SAMPLE_OUTPUT.md](docs/SAMPLE_OUTPUT.md) — sample JSON
   responses from `/api/stats`, `/api/blocks`, `/api/worker/:addr`.

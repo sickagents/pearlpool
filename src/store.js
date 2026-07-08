@@ -1,13 +1,13 @@
 'use strict';
 
 /**
- * @fileoverview In-memory state store for PearlPool.
+ * @fileoverview In-memory state store for BabelHub.
  *
  * Centralizes all runtime pool state: connected workers, found blocks,
  * pending distributions, pool statistics, and throughput history.
  * EventEmitter-based so other components can subscribe to state changes.
  *
- * @author PearlPool Contributors
+ * @author BabelHub Contributors
  * @license MIT
  */
 
@@ -478,7 +478,7 @@ class PoolStore extends EventEmitter {
     if (snapshot.version !== 1) {
       throw new Error(
         `Unsupported snapshot version: ${snapshot.version}. ` +
-        `This build of PearlPool understands version 1.`
+        `This build of BabelHub understands version 1.`
       );
     }
 

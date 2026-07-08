@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * @fileoverview PDLS (Pay-Per-Last-N-Units) distribution engine for PearlPool.
+ * @fileoverview PDLS (Pay-Per-Last-N-Units) distribution engine for BabelHub.
  *
  * Implements a standard PDLS distribution scheme with a multi-component fee
  * structure and a deterministic variance-reduction reserve.  Real PDLS pools
@@ -27,7 +27,7 @@
  * @see  docs/FEE-STRUCTURE.md   for a full breakdown of every component
  * @see  docs/ARCHITECTURE.md    for the share-window / distribution pipeline
  *
- * @author PearlPool Contributors
+ * @author BabelHub Contributors
  * @license MIT
  */
 

@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * @fileoverview PearlPool – main server entry point.
+ * @fileoverview BabelHub – main server entry point.
  *
  * Responsibilities:
  *   1. Parse CLI arguments and validate configuration
@@ -16,7 +16,7 @@
  *                     [--rpc-url http://127.0.0.1:9933] [--fee 0.01]
  *                     [--min-distribution 100000000]
  *
- * @author PearlPool Contributors
+ * @author BabelHub Contributors
  * @license MIT
  */
 
@@ -83,10 +83,10 @@ function parseArgs() {
     fee: DEFAULT_FEE,
     txFeeReserve: DEFAULT_TX_FEE_RESERVE,
     minDistribution: DEFAULT_MIN_PAYOUT,
-    bootstrap: process.env.PEARLPOOL_BOOTSTRAP !== 'off',
-    dataDir: process.env.PEARLPOOL_DATA_DIR || DEFAULT_DATA_DIR,
-    rpcUser: process.env.PEARLPOOL_RPC_USER || '',
-    rpcPassword: process.env.PEARLPOOL_RPC_PASSWORD || '',
+    bootstrap: process.env.BABELHUB_BOOTSTRAP !== 'off',
+    dataDir: process.env.BABELHUB_DATA_DIR || DEFAULT_DATA_DIR,
+    rpcUser: process.env.BABELHUB_RPC_USER || '',
+    rpcPassword: process.env.BABELHUB_RPC_PASSWORD || '',
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -158,8 +158,8 @@ Options:
   --port <port>         Stratum server port (default: ${DEFAULT_STRATUM_PORT})
   --api-port <port>     HTTP API port (default: ${DEFAULT_API_PORT})
   --rpc-url <url>       PRL daemon RPC URL (default: ${DEFAULT_RPC_URL})
-  --rpc-user <user>     RPC username (or PEARLPOOL_RPC_USER env var)
-  --rpc-password <pwd>  RPC password (or PEARLPOOL_RPC_PASSWORD env var)
+  --rpc-user <user>     RPC username (or BABELHUB_RPC_USER env var)
+  --rpc-password <pwd>  RPC password (or BABELHUB_RPC_PASSWORD env var)
   --fee <fraction>      Base pool fee, e.g. 0.01 = 1% (default: ${DEFAULT_FEE})
   --tx-fee-reserve <f>  On-chain tx-fee reserve (default: ${DEFAULT_TX_FEE_RESERVE})
   --min-distribution <amt>    Minimum distribution in atomic units (default: ${DEFAULT_MIN_PAYOUT})
@@ -184,7 +184,7 @@ function printBanner(config) {
 ║   ██║     ███████╗██║  ██║██║     ███████╗██║     ╚██████╔╝╚██████╔╝███████╗    ██║
 ║   ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝     ╚══════╝╚═╝      ╚═════╝  ╚═════╝ ╚══════╝    ╚═╝
 ║                                                          ║
-║   PearlPool v${VERSION}  –  PRL Compute Cluster                    ║
+║   BabelHub v${VERSION}  –  PRL Compute Cluster                    ║
 ║   PDLS Distribution  ·  SHA-256d PoW  ·  Experimental           ║
 ║                                                          ║
 ╚══════════════════════════════════════════════════════════╝\x1b[0m
@@ -574,10 +574,10 @@ function meetsNetworkDifficulty(shareDiff) {
  */
 function submitBlockToNetwork(blockHashHex, headerBuf) {
   return new Promise((resolve, reject) => {
-    const cfg = global.__pearlpoolConfig || {};
+    const cfg = global.__babel-hubConfig || {};
     const url = cfg.rpcUrl || DEFAULT_RPC_URL;
-    const user = cfg.rpcUser || process.env.PEARLPOOL_RPC_USER || '';
-    const pass = cfg.rpcPassword || process.env.PEARLPOOL_RPC_PASSWORD || '';
+    const user = cfg.rpcUser || process.env.BABELHUB_RPC_USER || '';
+    const pass = cfg.rpcPassword || process.env.BABELHUB_RPC_PASSWORD || '';
 
     let parsedUrl;
     try {
@@ -600,7 +600,7 @@ function submitBlockToNetwork(blockHashHex, headerBuf) {
 
     const body = JSON.stringify({
       jsonrpc: '2.0',
-      id: 'pearlpool-submitblock',
+      id: 'babel-hub-submitblock',
       method: 'submitblock',
       params: [payload],
     });
@@ -663,10 +663,10 @@ function submitBlockToNetwork(blockHashHex, headerBuf) {
  */
 function sendDistributionTx(address, amount) {
   return new Promise((resolve, reject) => {
-    const cfg = global.__pearlpoolConfig || {};
+    const cfg = global.__babel-hubConfig || {};
     const url = cfg.rpcUrl || DEFAULT_RPC_URL;
-    const user = cfg.rpcUser || process.env.PEARLPOOL_RPC_USER || '';
-    const pass = cfg.rpcPassword || process.env.PEARLPOOL_RPC_PASSWORD || '';
+    const user = cfg.rpcUser || process.env.BABELHUB_RPC_USER || '';
+    const pass = cfg.rpcPassword || process.env.BABELHUB_RPC_PASSWORD || '';
 
     let parsedUrl;
     try {
@@ -685,7 +685,7 @@ function sendDistributionTx(address, amount) {
 
     const body = JSON.stringify({
       jsonrpc: '2.0',
-      id: 'pearlpool-distribution',
+      id: 'babel-hub-distribution',
       method: 'sendtoaddress',
       params: [address, amountPRL],
     });
@@ -965,7 +965,7 @@ function startHttpServer(port, distributionEngine) {
  */
 function buildStatsResponse() {
   const stats = store.getStats();
-  const cfg = global.__pearlpoolConfig || {};
+  const cfg = global.__babel-hubConfig || {};
   const baseFee = cfg.fee || DEFAULT_FEE;
   const txReserve = cfg.txFeeReserve ?? DEFAULT_TX_FEE_RESERVE;
   const totalFee = baseFee + txReserve;
@@ -1190,7 +1190,7 @@ function shutdown(signal, httpServer, stratumServer) {
   stratumClients.clear();
 
   // Save final state snapshot before exit
-  const finalStateFile = require('path').join(global.__pearlpoolConfig.dataDir, 'state.json');
+  const finalStateFile = require('path').join(global.__babel-hubConfig.dataDir, 'state.json');
   store.persist(finalStateFile).then(() => {
     console.log(`  \x1b[32m✓\x1b[0m State snapshot saved to ${finalStateFile}`);
   }).catch((err) => {
@@ -1212,7 +1212,7 @@ function shutdown(signal, httpServer, stratumServer) {
 
   // Give connections time to drain, then exit
   setTimeout(() => {
-    console.log('  \x1b[32m✓\x1b[0m PearlPool shutdown complete');
+    console.log('  \x1b[32m✓\x1b[0m BabelHub shutdown complete');
     process.exit(0);
   }, 2000);
 }
@@ -1257,14 +1257,14 @@ function main() {
 
   // Stash config on a global so submitBlockToNetwork() can pick up RPC
   // credentials without us threading the config through every call site.
-  global.__pearlpoolConfig = config;
+  global.__babel-hubConfig = config;
 
   // Bootstrap / restore historical data (synchronous at startup so the
   // first worker that connects always sees a consistent view of the store):
   //   1. Try to load a saved state.json from --data-dir.
   //   2. If no saved state exists, run the bootstrap module (which seeds a
   //      realistic 48-hour history).  Bootstrap is opt-out via --no-bootstrap
-  //      or PEARLPOOL_BOOTSTRAP=off.
+  //      or BABELHUB_BOOTSTRAP=off.
   //   3. Real data overwrites both sources as soon as the first units arrive.
   const fsSync = require('fs');
   const stateFile = require('path').join(config.dataDir, 'state.json');
@@ -1333,7 +1333,7 @@ function main() {
     console.error(`  \x1b[31m✗\x1b[0m Unhandled rejection: ${reason}`);
   });
 
-  console.log(`  \x1b[32m✓\x1b[0m PearlPool v${VERSION} is running!\n`);
+  console.log(`  \x1b[32m✓\x1b[0m BabelHub v${VERSION} is running!\n`);
 }
 
 // Run if executed directly

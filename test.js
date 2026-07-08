@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * Smoke tests for PearlPool modules.
+ * Smoke tests for BabelHub modules.
  * Run: node test.js
  *
  * Updated to match the post-refactor distribution engine — the old "fee sums to
@@ -25,7 +25,7 @@ function test(name, fn) {
   }
 }
 
-console.log('\n🧪 PearlPool Smoke Tests\n');
+console.log('\n🧪 BabelHub Smoke Tests\n');
 
 // === Store ===
 console.log('Store:');
@@ -188,7 +188,7 @@ const snapshot = require('./lib/persistence/json-snapshot');
 
 function tmpFile(name) {
   return path.join(
-    fs.mkdtempSync(path.join(os.tmpdir(), 'pearlpool-test-')),
+    fs.mkdtempSync(path.join(os.tmpdir(), 'babel-hub-test-')),
     name
   );
 }
@@ -212,7 +212,7 @@ function tmpFile(name) {
 
   // load() throws on a corrupt JSON file (so we don't silently lose data)
   test('snapshot.load throws on corrupt file', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pearlpool-test-'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'babel-hub-test-'));
     const fp = path.join(dir, 'corrupt.json');
     fs.writeFileSync(fp, '{ this is not: valid json');
     let threw = false;
