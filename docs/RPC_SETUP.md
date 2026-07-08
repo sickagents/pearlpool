@@ -1,7 +1,7 @@
 # PearlPool RPC Setup
 
 PearlPool requires a running Pearl (PRL) daemon reachable over JSON-RPC for
-block-template polling, on-chain block submission, and miner payouts.  This
+block-template polling, on-chain block submission, and worker distributions.  This
 document shows the daemon configuration we test against, the JSON-RPC
 methods we use, and how to verify each one.
 
@@ -38,12 +38,12 @@ rpcport=9933
 listen=1
 port=9934
 
-# --- Mining / Coinbase ---
-# Pool's coinbase payout script (PRL address)
+# --- Compute / Coinbase ---
+# Pool's coinbase distribution script (PRL address)
 # Set this to the operator's wallet from --wallet in pool.js
-miningaddr=prl1pYOUR_OPERATOR_ADDRESS
+computeaddr=prl1pYOUR_OPERATOR_ADDRESS
 
-# Don't let the daemon mine its own blocks when the pool is running.
+# Don't let the daemon process its own blocks when the pool is running.
 gen=0
 ```
 
@@ -95,14 +95,14 @@ methods documented in the [PRL developer reference][prl-rpc].
 | `submitblock` | pool → daemon | Broadcast a found block to the PRL network | `{"method": "submitblock", "params": ["0700...hex..."]}` |
 | `getblock` | pool → daemon | Confirm a submitted block was accepted (poll after broadcast) | `{"method": "getblock", "params": ["<hash>", false]}` |
 | `getbalance` | pool → daemon | Track the operator wallet's PRL balance | `{"method": "getbalance"}` |
-| `sendtoaddress` | pool → daemon | Pay out a miner (PRL atomic units) | `{"method": "sendtoaddress", "params": ["prl1pMINER", 12.34, "", "", false]}` |
-| `gettransaction` | pool → daemon | Look up the txid of a recent payout (confirm / audit) | `{"method": "gettransaction", "params": ["<txid>"]}` |
-| `getnetworkinfo` | pool → daemon | Display network hashrate / version in the dashboard | `{"method": "getnetworkinfo"}` |
-| `getmininginfo` | pool → daemon | Current network difficulty + height | `{"method": "getmininginfo"}` |
+| `sendtoaddress` | pool → daemon | Pay out a worker (PRL atomic units) | `{"method": "sendtoaddress", "params": ["prl1pMINER", 12.34, "", "", false]}` |
+| `gettransaction` | pool → daemon | Look up the txid of a recent distribution (confirm / audit) | `{"method": "gettransaction", "params": ["<txid>"]}` |
+| `getnetworkinfo` | pool → daemon | Display network throughput / version in the dashboard | `{"method": "getnetworkinfo"}` |
+| `getcomputeinfo` | pool → daemon | Current network difficulty + height | `{"method": "getcomputeinfo"}` |
 
 All calls are `POST /` with HTTP basic auth (`rpcuser:rpcpassword`) and
 a JSON body.  Timeouts are 10 s per call with 2 retries on `ECONNRESET`
-or `ETIMEDOUT`.  See `src/scanner.js` and `src/pool.js:sendPayoutTx`.
+or `ETIMEDOUT`.  See `src/scanner.js` and `src/pool.js:sendDistributionTx`.
 
 ---
 
@@ -171,22 +171,22 @@ Other rejection codes we have seen and what we do about them:
 
 | Code | Meaning | Pool action |
 |------|---------|-------------|
-| `null` | Block accepted | Mark as confirmed, trigger PPLNS payout |
-| `duplicate` | Block was already submitted | Mark as orphan, skip payout |
+| `null` | Block accepted | Mark as confirmed, trigger PDLS distribution |
+| `duplicate` | Block was already submitted | Mark as orphan, skip distribution |
 | `rejected` | Coinbase / sig / size check failed | Log, mark as orphan, page operator |
 | `bad-cb-header` / `bad-cb-amount` | Coinbase inconsistent with template | Critical — halt pool, alert operator |
 | `in-concurrency-limit` | Daemon busy; try again | Exponential backoff, retry up to 3× |
 
-### `sendtoaddress` (miner payout)
+### `sendtoaddress` (worker distribution)
 
-Request (paying 12.34 PRL to a miner):
+Request (paying 12.34 PRL to a worker):
 
 ```json
 {"jsonrpc":"1.0","id":"pearlpool","method":"sendtoaddress",
  "params":["prl1pMINER_REDACTED", 1.23400000, "", "", false]}
 ```
 
-Response (the txid that goes into the payout history):
+Response (the txid that goes into the distribution history):
 
 ```json
 "4a3b1c8d2e9f0a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b"
@@ -225,18 +225,18 @@ three failure modes we actually see in production:
 1. **Network / connection failure** (daemon down, port unreachable)
    → Log, back off 5 s, retry up to 3 times, then surface to caller.
 2. **RPC error response** (e.g. `submitblock` returns `"rejected"`)
-   → Hand the error code to the caller; the payout / block ledger
+   → Hand the error code to the caller; the distribution / block ledger
      records it as an orphan / failure and continues.
 3. **Successful response, but unexpected shape** (e.g. `getblocktemplate`
    returns `coinbasevalue: 0` because the daemon is still syncing)
    → Skip this template, try again on the next poll.
 
-Payout verification: every `sendtoaddress` response is followed by a
+Distribution verification: every `sendtoaddress` response is followed by a
 `gettransaction(txid)` call 30 s later to capture the fee.  If the
-transaction never appears, the payout is marked **unconfirmed** in the
+transaction never appears, the distribution is marked **unconfirmed** in the
 ledger and a follow-up `gettransaction` is scheduled 10 minutes later.
 After 24 hours of unconfirmed status, the operator is alerted and the
-payout is manually investigated (this has happened exactly once in our
+distribution is manually investigated (this has happened exactly once in our
 testing, on regtest when the daemon was mid-restart).
 
 ---
@@ -264,8 +264,8 @@ export PEARLPOOL_RPC_PASSWORD='...'
 
 The pool will refuse to start if `--rpc-url` is unreachable for more
 than 30 seconds at boot.  After that, daemon outages are tolerated —
-the scanner retries indefinitely and the pool keeps accepting shares
-against the last known block template (miners see stale-work rejections
+the scanner retries indefinitely and the pool keeps accepting units
+against the last known block template (workers see stale-work rejections
 until the daemon comes back).
 
 ---
@@ -278,7 +278,7 @@ For local development against a deterministic regtest node:
 # Terminal 1 — daemon
 pearld -regtest -daemon -rpcuser=dev -rpcpassword=dev -rpcport=9933
 
-# Terminal 2 — mine a few blocks so the chain has a tip to build on
+# Terminal 2 — process a few blocks so the chain has a tip to build on
 PEARL_CLI="pearl-cli -regtest -rpcuser=dev -rpcpassword=dev"
 $PEARL_CLI generate 20
 
@@ -289,14 +289,14 @@ node src/pool.js \
   --rpc-user dev \
   --rpc-password dev
 
-# Terminal 4 — point a miner at it
-stratum-miner --pool stratum+tcp://127.0.0.1:3333 --wallet prl1pTEST
+# Terminal 4 — point a worker at it
+stratum-worker --pool tcp://127.0.0.1:3333 --wallet prl1pTEST
 ```
 
-When the miner finds a share that meets the regtest difficulty
+When the worker finds a share that meets the regtest difficulty
 (intentionally low — `bits: 1a0fffff`), `submitblock` returns `null`
-and the payout cycle fires within `payout-interval` seconds (default
-3600 s, override with `--payout-interval 30` for testing).
+and the distribution cycle fires within `distribution-interval` seconds (default
+3600 s, override with `--distribution-interval 30` for testing).
 
 ---
 

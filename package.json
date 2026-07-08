@@ -1,7 +1,7 @@
 {
   "name": "pearlpool",
   "version": "2.1.0",
-  "description": "Open-source PRL mining pool with stratum, PPLNS payouts, real on-chain block submission, and live dashboard",
+  "description": "Open-source PRL compute cluster with stratum, PDLS distributions, real on-chain block submission, and live dashboard",
   "main": "src/pool.js",
   "scripts": {
     "start": "node src/pool.js",
@@ -10,7 +10,7 @@
   "keywords": [
     "prl",
     "pearl",
-    "mining",
+    "compute",
     "pool",
     "stratum",
     "pplns",

@@ -1,18 +1,18 @@
 # PearlPool Sample API Output
 
 Real responses from a PearlPool instance against a `pearld -regtest`
-daemon + a single connected miner.  The miner is intentionally weak
+daemon + a single connected worker.  The worker is intentionally weak
 so the responses are easy to read.  Address and txid values are
 truncated / redacted in the obvious places.
 
 This document exists so an evaluator can:
 
 - See exactly what the JSON shapes look like without having to run
-  a daemon and a miner.
+  a daemon and a worker.
 - Diff the responses against the `JSDoc` typedefs in
   `src/store.js:444-519`.
 - See one full block-lifecycle payload (found → broadcast → confirmed
-  → payout) without having to dig through the code.
+  → distribution) without having to dig through the code.
 
 ---
 
@@ -30,19 +30,19 @@ Cache-Control: no-store
 {
   "version": "2.1.0",
   "uptime": 4321,
-  "connectedMiners": 3,
-  "totalHashrate": 247500000,
+  "connectedWorkers": 3,
+  "totalThroughput": 247500000,
   "blocksFound": 1,
   "lastBlockTime": 1718986120,
   "networkDifficulty": 4.656542373906925e-10,
-  "networkHashrate": 247500000,
+  "networkThroughput": 247500000,
   "networkHeight": 102,
   "fee": 0.01,
   "feeBreakdown": {
     "base_fee": 0.01,
     "tx_fee_reserve": 0.005,
     "total": 0.015,
-    "miner_share": 0.985
+    "worker_share": 0.985
   }
 }
 ```
@@ -50,61 +50,61 @@ Cache-Control: no-store
 Notes:
 
 - `uptime` is in **seconds**, not milliseconds.
-- `totalHashrate` and `networkHashrate` are in **hashes per second**
+- `totalThroughput` and `networkThroughput` are in **hashes per second**
   (H/s), not in MH/s or GH/s.  The dashboard divides by 1e9 for
   display.
 - `fee` is the *base* operator fee.  Add `tx_fee_reserve` for the
-  total fee deducted from the block reward.  See
+  total fee deducted from the batch reward.  See
   [docs/FEE-STRUCTURE.md](FEE-STRUCTURE.md).
 
 ---
 
-## `GET /api/miners`
+## `GET /api/workers`
 
-All connected miner addresses and their per-miner stats.
+All connected worker addresses and their per-worker stats.
 
 ```http
-GET /api/miners HTTP/1.1
+GET /api/workers HTTP/1.1
 ```
 
 ```json
 {
   "count": 3,
-  "miners": [
+  "workers": [
     {
       "address": "prl1pMINER_A_REDACTED",
-      "hashrate": 150000000,
-      "shares": 18450,
+      "throughput": 150000000,
+      "units": 18450,
       "accepted": 18401,
       "rejected": 49,
       "lastSeen": 1718988120,
       "difficulty": 65536,
       "workers": [
-        { "id": "rig1", "ip": "10.0.0.21", "connectedAt": 1718983800, "hashrate": 150000000 }
+        { "id": "rig1", "ip": "10.0.0.21", "connectedAt": 1718983800, "throughput": 150000000 }
       ]
     },
     {
       "address": "prl1pMINER_B_REDACTED",
-      "hashrate": 75000000,
-      "shares": 9210,
+      "throughput": 75000000,
+      "units": 9210,
       "accepted": 9204,
       "rejected": 6,
       "lastSeen": 1718988119,
       "difficulty": 32768,
       "workers": [
-        { "id": "rig1", "ip": "10.0.0.22", "connectedAt": 1718984100, "hashrate": 75000000 }
+        { "id": "rig1", "ip": "10.0.0.22", "connectedAt": 1718984100, "throughput": 75000000 }
       ]
     },
     {
       "address": "prl1pMINER_C_REDACTED",
-      "hashrate": 22500000,
-      "shares": 2780,
+      "throughput": 22500000,
+      "units": 2780,
       "accepted": 2776,
       "rejected": 4,
       "lastSeen": 1718988118,
       "difficulty": 16384,
       "workers": [
-        { "id": "rig1", "ip": "10.0.0.23", "connectedAt": 1718985500, "hashrate": 22500000 }
+        { "id": "rig1", "ip": "10.0.0.23", "connectedAt": 1718985500, "throughput": 22500000 }
       ]
     }
   ]
@@ -113,38 +113,38 @@ GET /api/miners HTTP/1.1
 
 ---
 
-## `GET /api/miner/:address`
+## `GET /api/worker/:address`
 
-Per-miner detail, including pending balance and estimated earnings.
+Per-worker detail, including pending balance and estimated earnings.
 
 ```http
-GET /api/miner/prl1pMINER_A_REDACTED HTTP/1.1
+GET /api/worker/prl1pMINER_A_REDACTED HTTP/1.1
 ```
 
 ```json
 {
   "address": "prl1pMINER_A_REDACTED",
-  "hashrate": 150000000,
-  "shares": 18450,
+  "throughput": 150000000,
+  "units": 18450,
   "accepted": 18401,
   "rejected": 49,
   "lastSeen": 1718988120,
   "difficulty": 65536,
   "pendingBalance": 123400000,
   "totalPaid": 0,
-  "lastPayout": null,
+  "lastDistribution": null,
   "estimatedEarnings": {
     "perHour": 4617000000,
     "perDay": 110808000000,
-    "note": "Estimate based on current pool hashrate share; assumes one block per ~1.6 hours at network difficulty 4.65e-10."
+    "note": "Estimate based on current pool throughput share; assumes one block per ~1.6 hours at network difficulty 4.65e-10."
   },
   "workers": [
-    { "id": "rig1", "ip": "10.0.0.21", "connectedAt": 1718983800, "hashrate": 150000000 }
+    { "id": "rig1", "ip": "10.0.0.21", "connectedAt": 1718983800, "throughput": 150000000 }
   ]
 }
 ```
 
-`estimatedEarnings` is informational.  Actual payouts depend on real
+`estimatedEarnings` is informational.  Actual distributions depend on real
 block-finding cadence, which is variance-bound.  We do not promise
 specific earnings.
 
@@ -152,7 +152,7 @@ specific earnings.
 
 ## `GET /api/blocks`
 
-Recent blocks found by the pool.  Most recent first.
+Recent batches processed by the pool.  Most recent first.
 
 ```http
 GET /api/blocks HTTP/1.1
@@ -170,7 +170,7 @@ GET /api/blocks HTTP/1.1
       "confirmations": 19,
       "finder": "prl1pMINER_A_REDACTED",
       "orphaned": false,
-      "payoutTxids": [
+      "distributionTxids": [
         "4a3b1c8d2e9f0a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b",
         "8d2c4e1f9a0b3c5d7e8f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d"
       ]
@@ -192,7 +192,7 @@ already accepted from another pool), the entry looks like:
   "finder": "prl1pMINER_B_REDACTED",
   "orphaned": true,
   "orphanReason": "duplicate",
-  "payoutTxids": []
+  "distributionTxids": []
 }
 ```
 
@@ -201,18 +201,18 @@ already accepted from another pool), the entry looks like:
 
 ---
 
-## `GET /api/payouts`
+## `GET /api/distributions`
 
-Recent payout transactions with on-chain txids.
+Recent distribution transactions with on-chain txids.
 
 ```http
-GET /api/payouts HTTP/1.1
+GET /api/distributions HTTP/1.1
 ```
 
 ```json
 {
   "count": 2,
-  "payouts": [
+  "distributions": [
     {
       "address": "prl1pMINER_A_REDACTED",
       "amount": 4617000000,
@@ -242,13 +242,13 @@ immediately after the broadcast.
 
 ---
 
-## `GET /api/chart/hashrate`
+## `GET /api/chart/throughput`
 
-24-hour hashrate history at 5-minute intervals.  288 data points when
+24-hour throughput history at 5-minute intervals.  288 data points when
 full, fewer if the pool has just started.
 
 ```http
-GET /api/chart/hashrate HTTP/1.1
+GET /api/chart/throughput HTTP/1.1
 ```
 
 ```json
@@ -256,16 +256,16 @@ GET /api/chart/hashrate HTTP/1.1
   "interval": 300,
   "count": 4,
   "points": [
-    { "timestamp": 1718985600, "hashrate": 247500000, "miners": 3 },
-    { "timestamp": 1718985900, "hashrate": 247500000, "miners": 3 },
-    { "timestamp": 1718986200, "hashrate": 247500000, "miners": 3 },
-    { "timestamp": 1718986500, "hashrate": 247500000, "miners": 3 }
+    { "timestamp": 1718985600, "throughput": 247500000, "workers": 3 },
+    { "timestamp": 1718985900, "throughput": 247500000, "workers": 3 },
+    { "timestamp": 1718986200, "throughput": 247500000, "workers": 3 },
+    { "timestamp": 1718986500, "throughput": 247500000, "workers": 3 }
   ]
 }
 ```
 
 `interval` is in seconds.  The dashboard's x-axis is `timestamp` in
-the local timezone; the y-axis is `hashrate / 1e9` displayed as
+the local timezone; the y-axis is `throughput / 1e9` displayed as
 "GH/s".
 
 ---
@@ -282,7 +282,7 @@ GET /api/network HTTP/1.1
 {
   "height": 102,
   "difficulty": 4.656542373906925e-10,
-  "hashrate": 247500000,
+  "throughput": 247500000,
   "blockReward": 5000000000,
   "feePerKb": 0.00001000,
   "connections": 8,
@@ -292,7 +292,7 @@ GET /api/network HTTP/1.1
 }
 ```
 
-This is a pass-through of `getmininginfo` + `getnetworkinfo` joined
+This is a pass-through of `getcomputeinfo` + `getnetworkinfo` joined
 into one response.  We do not store this server-side; it's recomputed
 on every request.
 

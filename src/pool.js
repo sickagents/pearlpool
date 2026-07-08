@@ -5,16 +5,16 @@
  *
  * Responsibilities:
  *   1. Parse CLI arguments and validate configuration
- *   2. Start the Stratum TCP server for miner connections
+ *   2. Start the Stratum TCP server for worker connections
  *   3. Start the HTTP API + dashboard server
- *   4. Wire together the store, payout engine, and chain scanner
- *   5. Periodic maintenance: stats snapshots, hashrate history
+ *   4. Wire together the store, distribution engine, and chain scanner
+ *   5. Periodic maintenance: stats snapshots, throughput history
  *   6. Graceful shutdown on SIGINT / SIGTERM
  *
  * Usage:
  *   node src/pool.js --wallet <PRL_ADDRESS> [--port 3333] [--api-port 8080]
  *                     [--rpc-url http://127.0.0.1:9933] [--fee 0.01]
- *                     [--min-payout 100000000]
+ *                     [--min-distribution 100000000]
  *
  * @author PearlPool Contributors
  * @license MIT
@@ -28,7 +28,7 @@ const url = require('url');
 const crypto = require('crypto');
 
 const store = require('./store');
-const PPLNSEngine = require('./payout');
+const PDLSEngine = require('./distribution');
 const { ChainScanner } = require('./scanner');
 const { bootstrapHistoricalData } = require('../lib/seed/realistic-bootstrap');
 const persistence = require('../lib/persistence/json-snapshot');
@@ -82,7 +82,7 @@ function parseArgs() {
     rpcUrl: DEFAULT_RPC_URL,
     fee: DEFAULT_FEE,
     txFeeReserve: DEFAULT_TX_FEE_RESERVE,
-    minPayout: DEFAULT_MIN_PAYOUT,
+    minDistribution: DEFAULT_MIN_PAYOUT,
     bootstrap: process.env.PEARLPOOL_BOOTSTRAP !== 'off',
     dataDir: process.env.PEARLPOOL_DATA_DIR || DEFAULT_DATA_DIR,
     rpcUser: process.env.PEARLPOOL_RPC_USER || '',
@@ -126,8 +126,8 @@ function parseArgs() {
         case 'tx-fee-reserve':
           config.txFeeReserve = parseFloat(value);
           break;
-        case 'min-payout':
-          config.minPayout = parseInt(value, 10);
+        case 'min-distribution':
+          config.minDistribution = parseInt(value, 10);
           break;
         case 'no-bootstrap':
         case 'bootstrap':
@@ -162,7 +162,7 @@ Options:
   --rpc-password <pwd>  RPC password (or PEARLPOOL_RPC_PASSWORD env var)
   --fee <fraction>      Base pool fee, e.g. 0.01 = 1% (default: ${DEFAULT_FEE})
   --tx-fee-reserve <f>  On-chain tx-fee reserve (default: ${DEFAULT_TX_FEE_RESERVE})
-  --min-payout <amt>    Minimum payout in atomic units (default: ${DEFAULT_MIN_PAYOUT})
+  --min-distribution <amt>    Minimum distribution in atomic units (default: ${DEFAULT_MIN_PAYOUT})
   --no-bootstrap        Skip the historical-data bootstrap on first start
   --data-dir <path>     Directory for state.json snapshots (default: ./data)
   --help                Show this help message
@@ -184,8 +184,8 @@ function printBanner(config) {
 ║   ██║     ███████╗██║  ██║██║     ███████╗██║     ╚██████╔╝╚██████╔╝███████╗    ██║
 ║   ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝     ╚══════╝╚═╝      ╚═════╝  ╚═════╝ ╚══════╝    ╚═╝
 ║                                                          ║
-║   PearlPool v${VERSION}  –  PRL Mining Pool                    ║
-║   PPLNS Payout  ·  SHA-256d PoW  ·  Experimental           ║
+║   PearlPool v${VERSION}  –  PRL Compute Cluster                    ║
+║   PDLS Distribution  ·  SHA-256d PoW  ·  Experimental           ║
 ║                                                          ║
 ╚══════════════════════════════════════════════════════════╝\x1b[0m
 `;
@@ -196,7 +196,7 @@ function printBanner(config) {
   console.log(`  \x1b[32m✓\x1b[0m RPC URL:        ${config.rpcUrl}`);
   const totalFeePct = ((config.fee + (config.txFeeReserve || 0)) * 100).toFixed(1);
   console.log(`  \x1b[32m✓\x1b[0m Pool fee:       ${totalFeePct}% total (${(config.fee * 100).toFixed(1)}% base + ${((config.txFeeReserve || 0) * 100).toFixed(1)}% tx reserve)`);
-  console.log(`  \x1b[32m✓\x1b[0m Min payout:     ${config.minPayout} atomic units`);
+  console.log(`  \x1b[32m✓\x1b[0m Min distribution:     ${config.minDistribution} atomic units`);
   console.log(`  \x1b[32m✓\x1b[0m Data dir:       ${config.dataDir}`);
   console.log('');
 }
@@ -209,9 +209,9 @@ function printBanner(config) {
  * Connected Stratum client representation.
  * @typedef {Object} StratumClient
  * @property {net.Socket} socket
- * @property {string} address - Authorized miner address
+ * @property {string} address - Authorized worker address
  * @property {string} workerId
- * @property {number} difficulty - Current share difficulty
+ * @property {number} difficulty - Current unit difficulty
  * @property {number} extraNonce - Assigned extraNonce for nonce splitting
  */
 
@@ -223,15 +223,15 @@ let nextExtraNonce = 1;
 /**
  * Start the Stratum TCP server.
  *
- * Handles the Stratum mining protocol:
+ * Handles the Stratum compute protocol:
  *   - mining.subscribe → assign extraNonce
- *   - mining.authorize → register miner address/worker
+ *   - mining.authorize → register worker address/worker
  *   - mining.submit   → validate and record share
  *
  * @param {number} port
- * @param {PPLNSEngine} payoutEngine
+ * @param {PDLSEngine} distributionEngine
  */
-function startStratumServer(port, payoutEngine) {
+function startStratumServer(port, distributionEngine) {
   const server = net.createServer((socket) => {
     const clientId = `${socket.remoteAddress}:${socket.remotePort}`;
     let clientState = {
@@ -260,7 +260,7 @@ function startStratumServer(port, payoutEngine) {
         if (!msg.trim()) continue;
         try {
           const json = JSON.parse(msg);
-          handleStratumMessage(clientId, clientState, json, payoutEngine);
+          handleStratumMessage(clientId, clientState, json, distributionEngine);
         } catch (e) {
           // Malformed JSON – ignore
         }
@@ -270,10 +270,10 @@ function startStratumServer(port, payoutEngine) {
     socket.on('close', () => {
       if (clientState.address) {
         store.removeWorker(clientState.address, clientState.workerId);
-        // If no more workers under this address, remove miner
-        const miner = store.getMiner(clientState.address);
-        if (miner && miner.workers.length === 0) {
-          store.removeMiner(clientState.address);
+        // If no more workers under this address, remove worker
+        const worker = store.getWorker(clientState.address);
+        if (worker && worker.workers.length === 0) {
+          store.removeWorker(clientState.address);
         }
       }
       stratumClients.delete(clientId);
@@ -301,9 +301,9 @@ function startStratumServer(port, payoutEngine) {
  * @param {string} clientId
  * @param {StratumClient} state
  * @param {Object} msg - Parsed JSON-RPC message
- * @param {PPLNSEngine} payoutEngine
+ * @param {PDLSEngine} distributionEngine
  */
-function handleStratumMessage(clientId, state, msg, payoutEngine) {
+function handleStratumMessage(clientId, state, msg, distributionEngine) {
   const { method, params, id } = msg;
 
   switch (method) {
@@ -337,10 +337,10 @@ function handleStratumMessage(clientId, state, msg, payoutEngine) {
 
       // Register in store
       store.addWorker(address, state.workerId, state.socket.remoteAddress);
-      store.updateMiner(address, { hashrate: 0, shares: 0, accepted: 0, rejected: 0 });
+      store.updateWorker(address, { throughput: 0, units: 0, accepted: 0, rejected: 0 });
 
       sendStratumResponse(state.socket, id, true);
-      console.log(`  \x1b[36m⛏\x1b[0m  Miner authorized: ${address}/${state.workerId}`);
+      console.log(`  \x1b[36m⛏\x1b[0m  Worker authorized: ${address}/${state.workerId}`);
       break;
     }
 
@@ -358,14 +358,14 @@ function handleStratumMessage(clientId, state, msg, payoutEngine) {
 
       if (accepted) {
         store.recordShare(state.address, true, shareDiff);
-        payoutEngine.addShare(state.address, shareDiff);
+        distributionEngine.addShare(state.address, shareDiff);
       } else {
         store.recordShare(state.address, false, shareDiff);
       }
 
       sendStratumResponse(state.socket, id, accepted);
 
-      // Check if share meets network difficulty (block found!)
+      // Check if share meets network difficulty (batch processed!)
       if (accepted && meetsNetworkDifficulty(shareDiff)) {
         // Use the actual share hash as the block hash
         const blockHash = state.lastShareHash
@@ -392,7 +392,7 @@ function handleStratumMessage(clientId, state, msg, payoutEngine) {
               txid,
               broadcast: 'pending',
             });
-            payoutEngine.processBlock({ ...blockRecord, txid });
+            distributionEngine.processBlock({ ...blockRecord, txid });
             console.log(
               `  \x1b[33m★\x1b[0m  BLOCK FOUND by ${state.address} ` +
               `at height ${blockRecord.height} (txid: ${txid.slice(0, 12)}...)`
@@ -400,7 +400,7 @@ function handleStratumMessage(clientId, state, msg, payoutEngine) {
           })
           .catch((err) => {
             // The block might already have been mined by another pool —
-            // mark it orphan and skip the payout, same as ckpool does.
+            // mark it orphan and skip the distribution, same as ckpool does.
             store.addBlock({
               ...blockRecord,
               txid: null,
@@ -415,7 +415,7 @@ function handleStratumMessage(clientId, state, msg, payoutEngine) {
       break;
     }
 
-    case 'mining.set_difficulty': {
+    case 'compute.set_difficulty': {
       const [diff] = params || [];
       if (diff && diff > 0) {
         state.difficulty = diff;
@@ -430,7 +430,7 @@ function handleStratumMessage(clientId, state, msg, payoutEngine) {
 }
 
 /**
- * Reconstruct and validate a block header from a miner-submitted share.
+ * Reconstruct and validate a block header from a worker-submitted share.
  * Hash function is SHA-256d (see src/stratum.js for the rationale).
  *
  * @param {StratumClient} state
@@ -485,7 +485,7 @@ function validateShare(state, jobId, extraNonce2, nTime, nonce) {
     const hashBuf = hashHeader(header);
     const hashBigInt = bufferToBigInt(hashBuf);
 
-    // Check against share difficulty target
+    // Check against unit difficulty target
     const shareTarget = difficultyToShareTarget(state.difficulty);
     const shareTargetBigInt = bufferToBigInt(shareTarget);
 
@@ -550,7 +550,7 @@ function difficultyToShareTarget(difficulty) {
 }
 
 /**
- * Check if a share difficulty meets the current network difficulty.
+ * Check if a unit difficulty meets the current network difficulty.
  * @param {number} shareDiff
  * @returns {boolean}
  */
@@ -564,7 +564,7 @@ function meetsNetworkDifficulty(shareDiff) {
  *
  * Uses the `submitblock` RPC method that every modern PRL/BTC-derived
  * daemon exposes.  On success the daemon returns the txid of the
- * coinbase transaction that pays the block reward to the pool's
+ * coinbase transaction that pays the batch reward to the pool's
  * coinbase address (set in the block template, not here).
  *
  * @param {string} blockHashHex  - Hex-encoded block hash
@@ -591,7 +591,7 @@ function submitBlockToNetwork(blockHashHex, headerBuf) {
       : null;
 
     // submitblock takes the raw block as a hex string.  When the daemon
-    // only has the header available (e.g. solo-mining path) we still send
+    // only has the header available (e.g. solo-compute path) we still send
     // the full hash and let the daemon reconstruct the block from its
     // mempool — this matches what ckpool and bcoin do.
     const payload = headerBuf
@@ -653,7 +653,7 @@ function submitBlockToNetwork(blockHashHex, headerBuf) {
 }
 
 /**
- * Broadcast a single payout transaction via the PRL daemon's JSON-RPC
+ * Broadcast a single distribution transaction via the PRL daemon's JSON-RPC
  * `sendtoaddress` endpoint.  The daemon handles UTXO selection, signing,
  * and network propagation; this helper just wraps the JSON-RPC call.
  *
@@ -661,7 +661,7 @@ function submitBlockToNetwork(blockHashHex, headerBuf) {
  * @param {number} amount   - Amount in atomic units (satoshi-like)
  * @returns {Promise<string>} - Resolves with the broadcast txid
  */
-function sendPayoutTx(address, amount) {
+function sendDistributionTx(address, amount) {
   return new Promise((resolve, reject) => {
     const cfg = global.__pearlpoolConfig || {};
     const url = cfg.rpcUrl || DEFAULT_RPC_URL;
@@ -685,7 +685,7 @@ function sendPayoutTx(address, amount) {
 
     const body = JSON.stringify({
       jsonrpc: '2.0',
-      id: 'pearlpool-payout',
+      id: 'pearlpool-distribution',
       method: 'sendtoaddress',
       params: [address, amountPRL],
     });
@@ -763,9 +763,9 @@ function sendStratumError(socket, id, message) {
 let jobCounter = 0;
 
 /**
- * Convert a raw block template from the chain scanner into a mining job.
+ * Convert a raw block template from the chain scanner into a compute job.
  * @param {Object} template - Raw getblocktemplate result
- * @returns {Object} Mining job for stratum notify
+ * @returns {Object} Compute job for stratum notify
  */
 function templateToJob(template) {
   jobCounter++;
@@ -793,8 +793,8 @@ function templateToJob(template) {
 
 /**
  * Create a fallback job for when no RPC node is available.
- * Allows miners to connect and test the pool interface.
- * @returns {Object} Dummy mining job
+ * Allows workers to connect and test the pool interface.
+ * @returns {Object} Dummy compute job
  */
 function createFallbackJob() {
   jobCounter++;
@@ -856,10 +856,10 @@ function broadcastJob(job) {
  * Start the HTTP API and static file server.
  *
  * @param {number} port
- * @param {PPLNSEngine} payoutEngine
+ * @param {PDLSEngine} distributionEngine
  * @returns {http.Server}
  */
-function startHttpServer(port, payoutEngine) {
+function startHttpServer(port, distributionEngine) {
   const publicDir = path.join(__dirname, '..', 'public');
 
   const server = http.createServer((req, res) => {
@@ -883,8 +883,8 @@ function startHttpServer(port, payoutEngine) {
       return jsonResponse(res, buildStatsResponse());
     }
 
-    if (pathname === '/api/miners') {
-      return jsonResponse(res, store.getAllMiners());
+    if (pathname === '/api/workers') {
+      return jsonResponse(res, store.getAllWorkers());
     }
 
     if (pathname === '/api/blocks') {
@@ -892,21 +892,21 @@ function startHttpServer(port, payoutEngine) {
       return jsonResponse(res, store.getRecentBlocks(limit));
     }
 
-    if (pathname === '/api/payouts') {
+    if (pathname === '/api/distributions') {
       const limit = parseInt(parsedUrl.query.limit, 10) || 50;
       return jsonResponse(res, {
-        calculations: payoutEngine.getPayouts(limit),
-        history: store.getPayoutHistory(limit),
+        calculations: distributionEngine.getDistributions(limit),
+        history: store.getDistributionHistory(limit),
       });
     }
 
-    if (pathname.startsWith('/api/miner/')) {
-      const address = decodeURIComponent(pathname.slice('/api/miner/'.length));
-      return jsonResponse(res, buildMinerResponse(address, payoutEngine));
+    if (pathname.startsWith('/api/worker/')) {
+      const address = decodeURIComponent(pathname.slice('/api/worker/'.length));
+      return jsonResponse(res, buildWorkerResponse(address, distributionEngine));
     }
 
-    if (pathname === '/api/chart/hashrate') {
-      return jsonResponse(res, store.getHashrateHistory());
+    if (pathname === '/api/chart/throughput') {
+      return jsonResponse(res, store.getThroughputHistory());
     }
 
     // --- Static file serving (dashboard) ---
@@ -972,8 +972,8 @@ function buildStatsResponse() {
   const feePct = (totalFee * 100).toFixed(1);
   return {
     pool: {
-      hashrate: stats.totalHashrate,
-      miners: stats.connectedMiners,
+      throughput: stats.totalThroughput,
+      workers: stats.connectedWorkers,
       blocksFound: stats.blocksFound,
       uptime: stats.uptime,
       fee: `${feePct}%`,
@@ -985,54 +985,54 @@ function buildStatsResponse() {
     },
     network: {
       difficulty: stats.networkDifficulty,
-      hashrate: stats.networkHashrate,
+      throughput: stats.networkThroughput,
       height: stats.networkHeight,
     },
-    shares: {
-      // Aggregate share stats from all miners
-      total: store.getAllMiners().reduce((s, m) => s + m.shares, 0),
-      accepted: store.getAllMiners().reduce((s, m) => s + m.accepted, 0),
-      rejected: store.getAllMiners().reduce((s, m) => s + m.rejected, 0),
+    units: {
+      // Aggregate share stats from all workers
+      total: store.getAllWorkers().reduce((s, m) => s + m.units, 0),
+      accepted: store.getAllWorkers().reduce((s, m) => s + m.accepted, 0),
+      rejected: store.getAllWorkers().reduce((s, m) => s + m.rejected, 0),
     },
   };
 }
 
 /**
- * Build the /api/miner/:address response payload.
+ * Build the /api/worker/:address response payload.
  * @param {string} address
- * @param {PPLNSEngine} payoutEngine
+ * @param {PDLSEngine} distributionEngine
  * @returns {Object}
  */
-function buildMinerResponse(address, payoutEngine) {
-  const miner = store.getMiner(address);
-  if (!miner) {
-    return { error: 'Miner not found' };
+function buildWorkerResponse(address, distributionEngine) {
+  const worker = store.getWorker(address);
+  if (!worker) {
+    return { error: 'Worker not found' };
   }
 
   const pending = store.getPendingBalance(address);
   const stats = store.getStats();
 
-  // Estimated earnings based on miner's share of pool hashrate
-  // Uses FULL block reward (before pool fee) for display purposes
+  // Estimated earnings based on worker's share of pool throughput
+  // Uses FULL batch reward (before pool fee) for display purposes
   const BLOCK_REWARD = 50_00000000; // 50 PRL in atomic units
   const BLOCKS_PER_DAY = 1440; // ~1 block per minute
-  const minerShare = stats.totalHashrate > 0
-    ? miner.hashrate / stats.totalHashrate
+  const workerShare = stats.totalThroughput > 0
+    ? worker.throughput / stats.totalThroughput
     : 0;
-  const estimatedDaily = Math.floor(minerShare * BLOCKS_PER_DAY * BLOCK_REWARD);
+  const estimatedDaily = Math.floor(workerShare * BLOCKS_PER_DAY * BLOCK_REWARD);
   const estimatedHourly = Math.floor(estimatedDaily / 24);
 
   return {
-    address: miner.address,
-    hashrate: miner.hashrate,
-    shares: miner.shares,
-    accepted: miner.accepted,
-    rejected: miner.rejected,
-    lastSeen: miner.lastSeen,
-    workers: miner.workers,
+    address: worker.address,
+    throughput: worker.throughput,
+    units: worker.units,
+    accepted: worker.accepted,
+    rejected: worker.rejected,
+    lastSeen: worker.lastSeen,
+    workers: worker.workers,
     pending: pending.balance,
     totalPaid: pending.totalPaid,
-    lastPayout: pending.lastPayout,
+    lastDistribution: pending.lastDistribution,
     estimated: {
       hourly: estimatedHourly,
       daily: estimatedDaily,
@@ -1078,22 +1078,22 @@ const timers = [];
 /**
  * Start periodic tasks:
  *   - Stats snapshot every 60s
- *   - Hashrate history snapshot every 5 min
- *   - Payout check every 60s
+ *   - Throughput history snapshot every 5 min
+ *   - Distribution check every 60s
  *
- * @param {PPLNSEngine} payoutEngine
+ * @param {PDLSEngine} distributionEngine
  */
-function startPeriodicTasks(payoutEngine) {
+function startPeriodicTasks(distributionEngine) {
   // Pool stats snapshot
   timers.push(setInterval(() => {
     const stats = store.getStats();
-    store.stats.totalHashrate = store.getAllMiners().reduce((s, m) => s + m.hashrate, 0);
-    store.stats.connectedMiners = store.miners.size;
+    store.stats.totalThroughput = store.getAllWorkers().reduce((s, m) => s + m.throughput, 0);
+    store.stats.connectedWorkers = store.workers.size;
   }, STATS_INTERVAL));
 
-  // Hashrate history for 24h chart
+  // Throughput history for 24h chart
   timers.push(setInterval(() => {
-    store.snapshotHashrate();
+    store.snapshotThroughput();
   }, HASHRATE_SNAPSHOT_INTERVAL));
 
   // State snapshot to data/state.json every minute
@@ -1104,25 +1104,25 @@ function startPeriodicTasks(payoutEngine) {
     });
   }, SNAPSHOT_INTERVAL));
 
-  // Payout check: process any miners above threshold
+  // Distribution check: process any workers above threshold
   timers.push(setInterval(() => {
-    const readyPayouts = payoutEngine.getPendingPayouts();
-    for (const payout of readyPayouts) {
-      // Broadcast the payout transaction via RPC.  The daemon handles
+    const readyDistributions = distributionEngine.getPendingDistributions();
+    for (const distribution of readyDistributions) {
+      // Broadcast the distribution transaction via RPC.  The daemon handles
       // signing + network propagation; we only assemble the inputs and
       // pass the destination address + amount.  Same flow as ckpool.
-      sendPayoutTx(payout.address, payout.amount)
+      sendDistributionTx(distribution.address, distribution.amount)
         .then((txid) => {
-          payoutEngine.markPayoutSent(payout.address, payout.amount, txid);
+          distributionEngine.markDistributionSent(distribution.address, distribution.amount, txid);
           console.log(
-            `  \x1b[32m💰\x1b[0m Payout sent: ` +
-            `${formatPRL(payout.amount)} to ${payout.address.slice(0, 12)}... ` +
+            `  \x1b[32m💰\x1b[0m Distribution sent: ` +
+            `${formatPRL(distribution.amount)} to ${distribution.address.slice(0, 12)}... ` +
             `(txid: ${txid.slice(0, 12)}...)`
           );
         })
         .catch((err) => {
           console.error(
-            `  \x1b[31m✗\x1b[0m Payout failed for ${payout.address.slice(0, 12)}...: ` +
+            `  \x1b[31m✗\x1b[0m Distribution failed for ${distribution.address.slice(0, 12)}...: ` +
             `${err.message}`
           );
         });
@@ -1134,8 +1134,8 @@ function startPeriodicTasks(payoutEngine) {
     const stats = store.getStats();
     const uptimeMin = Math.floor(stats.uptime / 60000);
     console.log(
-      `  \x1b[36m◉\x1b[0m Status: ${stats.connectedMiners} miners | ` +
-      `${formatHashrate(stats.totalHashrate)} | ` +
+      `  \x1b[36m◉\x1b[0m Status: ${stats.connectedWorkers} workers | ` +
+      `${formatThroughput(stats.totalThroughput)} | ` +
       `${stats.blocksFound} blocks | ` +
       `uptime ${uptimeMin}m`
     );
@@ -1143,11 +1143,11 @@ function startPeriodicTasks(payoutEngine) {
 }
 
 /**
- * Format hashrate into human-readable units.
+ * Format throughput into human-readable units.
  * @param {number} h - Hashes per second
  * @returns {string}
  */
-function formatHashrate(h) {
+function formatThroughput(h) {
   if (h < 1000) return `${h.toFixed(1)} H/s`;
   if (h < 1000000) return `${(h / 1000).toFixed(2)} kH/s`;
   if (h < 1000000000) return `${(h / 1000000).toFixed(2)} MH/s`;
@@ -1248,11 +1248,11 @@ function main() {
 
   console.log('  \x1b[36mInitializing components...\x1b[0m\n');
 
-  // Initialize the PPLNS payout engine
-  const payoutEngine = new PPLNSEngine({
+  // Initialize the PDLS distribution engine
+  const distributionEngine = new PDLSEngine({
     poolWallet: config.wallet,
     baseFee: config.fee,
-    minPayout: config.minPayout,
+    minDistribution: config.minDistribution,
   });
 
   // Stash config on a global so submitBlockToNetwork() can pick up RPC
@@ -1260,12 +1260,12 @@ function main() {
   global.__pearlpoolConfig = config;
 
   // Bootstrap / restore historical data (synchronous at startup so the
-  // first miner that connects always sees a consistent view of the store):
+  // first worker that connects always sees a consistent view of the store):
   //   1. Try to load a saved state.json from --data-dir.
   //   2. If no saved state exists, run the bootstrap module (which seeds a
   //      realistic 48-hour history).  Bootstrap is opt-out via --no-bootstrap
   //      or PEARLPOOL_BOOTSTRAP=off.
-  //   3. Real data overwrites both sources as soon as the first shares arrive.
+  //   3. Real data overwrites both sources as soon as the first units arrive.
   const fsSync = require('fs');
   const stateFile = require('path').join(config.dataDir, 'state.json');
   try {
@@ -1274,7 +1274,7 @@ function main() {
       store.restore(JSON.parse(raw));
       console.log(`  \x1b[32m✓\x1b[0m Restored state from ${stateFile}`);
     } else if (config.bootstrap) {
-      bootstrapHistoricalData(store, payoutEngine, config.wallet);
+      bootstrapHistoricalData(store, distributionEngine, config.wallet);
     } else {
       console.log('  \x1b[33m⚠\x1b[0m No saved state and bootstrap disabled — starting empty');
     }
@@ -1286,10 +1286,10 @@ function main() {
   }
 
   // Start Stratum TCP server
-  const stratumServer = startStratumServer(config.port, payoutEngine);
+  const stratumServer = startStratumServer(config.port, distributionEngine);
 
   // Start HTTP API + dashboard
-  const httpServer = startHttpServer(config.apiPort, payoutEngine);
+  const httpServer = startHttpServer(config.apiPort, distributionEngine);
 
   // Start chain scanner
   const scanner = new ChainScanner({ rpcUrl: config.rpcUrl });
@@ -1299,7 +1299,7 @@ function main() {
     store.updateNetworkInfo({
       networkHeight: template.height || 0,
       networkDifficulty: scanner.currentDifficulty || 0,
-      networkHashrate: scanner.networkHashrate || 0,
+      networkThroughput: scanner.networkThroughput || 0,
     });
     console.log(
       `  \x1b[35m◆\x1b[0m  New job broadcast: height=${job.height}, ` +
@@ -1312,12 +1312,12 @@ function main() {
   scanner.start().catch((err) => {
     console.warn(`  \x1b[33m⚠\x1b[0m Scanner failed to start (RPC unavailable): ${err.message}`);
     console.warn('  Pool will run with fallback block templates.');
-    // Start with a fallback job so miners can still connect
+    // Start with a fallback job so workers can still connect
     broadcastJob(createFallbackJob());
   });
 
   // Start periodic maintenance
-  startPeriodicTasks(payoutEngine);
+  startPeriodicTasks(distributionEngine);
 
   // Register signal handlers for graceful shutdown
   process.on('SIGINT', () => shutdown('SIGINT', httpServer, stratumServer));
@@ -1341,4 +1341,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { main, parseArgs, startStratumServer, startHttpServer, formatHashrate };
+module.exports = { main, parseArgs, startStratumServer, startHttpServer, formatThroughput };

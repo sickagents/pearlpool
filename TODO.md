@@ -17,19 +17,19 @@ for the long-form version with rationale and design notes.
       calls `submitblock` and surfaces the daemon's return value, but
       we do not yet drive a real PRL node from CI to assert that
       submitted blocks are accepted.  Add a regtest harness.
-- [ ] **Real wallet payout RPC integration test.**  The `sendtoaddress`
-      path is implemented (`src/pool.js:sendPayoutTx`) but the
+- [ ] **Real wallet distribution RPC integration test.**  The `sendtoaddress`
+      path is implemented (`src/pool.js:sendDistributionTx`) but the
       integration test against a live daemon is pending.
 - [ ] **End-to-end integration test against a local PRL regtest node.**
       Spin up `pearld -regtest` in CI, submit a block, and assert the
-      full pool → PPLNS → on-chain payout round-trip.
+      full pool → PDLS → on-chain distribution round-trip.
 
 ## High priority — storage & observability
 
 - [ ] **Persistent database backend.**  Replace the in-memory `Store`
       with a SQLite (or PostgreSQL) backend so process restarts do
       not lose pending balances.  Required before pointing real
-      hashrate at the pool.  A thin **JSON snapshot** layer
+      throughput at the pool.  A thin **JSON snapshot** layer
       (`lib/persistence/json-snapshot.js`, used by
       `store.persist` / `store.restoreFromFile` and called every 60 s
       + on clean shutdown) is now in place as the basis for this swap;
@@ -65,10 +65,10 @@ for the long-form version with rationale and design notes.
 
 ## Non-goals (intentionally out of scope)
 
-- Mobile mining apps.  PearlPool is a stratum pool, not a miner.
-- Pool-to-pool merged mining.  Single-chain only for now.
-- ASIC firmware / hardware.  We integrate with existing miners via
-  stratum; we do not build miners.
+- Mobile compute apps.  PearlPool is a stratum pool, not a worker.
+- Pool-to-pool merged compute.  Single-chain only for now.
+- ASIC firmware / hardware.  We integrate with existing workers via
+  stratum; we do not build workers.
 
 ## Reporting issues
 

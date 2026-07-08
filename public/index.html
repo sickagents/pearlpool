@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PearlPool — PRL Mining Pool</title>
+<title>PearlPool — PRL Compute Cluster</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -42,8 +42,8 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .stat-card .pulse{animation:pulse 0.6s ease}
 @keyframes pulse{0%{transform:scale(1)}50%{transform:scale(1.05)}100%{transform:scale(1)}}
 
-/* Miner Lookup */
-.miner-section{margin-bottom:32px}
+/* Worker Lookup */
+.worker-section{margin-bottom:32px}
 .section-title{font-size:1.3em;font-weight:600;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
 .lookup-bar{display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap}
 .lookup-bar input{
@@ -58,15 +58,15 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 }
 .lookup-bar button:hover{background:#33ddff;transform:translateY(-1px)}
 
-.miner-panel{
+.worker-panel{
   background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
   padding:24px;display:none;
 }
-.miner-panel.visible{display:block;animation:fadeIn 0.3s ease}
-.miner-panel .miner-address{color:var(--accent);font-size:0.9em;word-break:break-all;margin-bottom:16px}
-.miner-stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px}
-.miner-stat .label{font-size:0.75em;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em}
-.miner-stat .value{font-size:1.2em;font-weight:600;color:var(--text);margin-top:2px}
+.worker-panel.visible{display:block;animation:fadeIn 0.3s ease}
+.worker-panel .worker-address{color:var(--accent);font-size:0.9em;word-break:break-all;margin-bottom:16px}
+.worker-stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px}
+.worker-stat .label{font-size:0.75em;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em}
+.worker-stat .value{font-size:1.2em;font-weight:600;color:var(--text);margin-top:2px}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 
 /* Blocks Table */
@@ -150,18 +150,18 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   <!-- Header -->
   <div class="header">
     <h1><span class="pearl-icon"></span>PearlPool <span class="version">v2.0.0</span></h1>
-    <div class="tagline">Open-source PRL Mining Pool</div>
+    <div class="tagline">Open-source PRL Compute Cluster</div>
   </div>
 
   <!-- Stats Grid -->
   <div class="stats-grid">
     <div class="stat-card">
-      <div class="label">Pool Hashrate</div>
-      <div class="value mono" id="poolHashrate">—</div>
+      <div class="label">Pool Throughput</div>
+      <div class="value mono" id="poolThroughput">—</div>
     </div>
     <div class="stat-card">
-      <div class="label">Active Miners</div>
-      <div class="value mono" id="activeMiners">—</div>
+      <div class="label">Active Workers</div>
+      <div class="value mono" id="activeWorkers">—</div>
     </div>
     <div class="stat-card">
       <div class="label">Blocks Found</div>
@@ -172,8 +172,8 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
       <div class="value mono">1%</div>
     </div>
     <div class="stat-card">
-      <div class="label">Network Hashrate</div>
-      <div class="value mono" id="networkHashrate">—</div>
+      <div class="label">Network Throughput</div>
+      <div class="value mono" id="networkThroughput">—</div>
     </div>
     <div class="stat-card">
       <div class="label">Network Difficulty</div>
@@ -181,15 +181,15 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     </div>
   </div>
 
-  <!-- Miner Lookup -->
-  <div class="miner-section">
-    <div class="section-title">Miner Lookup</div>
+  <!-- Worker Lookup -->
+  <div class="worker-section">
+    <div class="section-title">Worker Lookup</div>
     <div class="lookup-bar">
-      <input type="text" id="minerAddress" placeholder="Enter PRL wallet address (prl1p...)" spellcheck="false" autocomplete="off">
-      <button onclick="lookupMiner()" id="lookupBtn">Search</button>
+      <input type="text" id="workerAddress" placeholder="Enter PRL wallet address (prl1p...)" spellcheck="false" autocomplete="off">
+      <button onclick="lookupWorker()" id="lookupBtn">Search</button>
     </div>
-    <div class="miner-panel" id="minerPanel">
-      <div class="miner-address mono" id="minerAddrDisplay"></div>
+    <div class="worker-panel" id="workerPanel">
+      <div class="worker-address mono" id="workerAddrDisplay"></div>
 
       <!-- Estimated Earnings — prominent display -->
       <div style="background:linear-gradient(135deg,rgba(0,255,136,0.1),rgba(0,212,255,0.1));border:1px solid rgba(0,255,136,0.3);border-radius:var(--radius);padding:20px;margin-bottom:20px;text-align:center">
@@ -198,28 +198,28 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
         <div style="font-size:1em;color:var(--accent);margin-top:4px;font-family:'SF Mono','Fira Code',monospace" id="mEstHourly"></div>
       </div>
 
-      <div class="miner-stats-grid">
-        <div class="miner-stat">
-          <div class="label">Hashrate</div>
-          <div class="value mono" id="mHashrate">—</div>
+      <div class="worker-stats-grid">
+        <div class="worker-stat">
+          <div class="label">Throughput</div>
+          <div class="value mono" id="mThroughput">—</div>
         </div>
-        <div class="miner-stat">
+        <div class="worker-stat">
           <div class="label">Pending Balance</div>
           <div class="value mono" id="mPending">—</div>
         </div>
-        <div class="miner-stat">
+        <div class="worker-stat">
           <div class="label">Total Paid</div>
           <div class="value mono" id="mPaid">—</div>
         </div>
-        <div class="miner-stat">
-          <div class="label">Shares (24h)</div>
-          <div class="value mono" id="mShares">—</div>
+        <div class="worker-stat">
+          <div class="label">Units (24h)</div>
+          <div class="value mono" id="mUnits">—</div>
         </div>
-        <div class="miner-stat">
+        <div class="worker-stat">
           <div class="label">Workers</div>
           <div class="value mono" id="mWorkers">—</div>
         </div>
-        <div class="miner-stat">
+        <div class="worker-stat">
           <div class="label">Last Share</div>
           <div class="value mono" id="mLastShare">—</div>
         </div>
@@ -246,11 +246,11 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     </table>
   </div>
 
-  <!-- Hashrate Chart -->
+  <!-- Throughput Chart -->
   <div class="chart-section">
-    <div class="section-title">Pool Hashrate (24h)</div>
+    <div class="section-title">Pool Throughput (24h)</div>
     <div class="chart-container">
-      <canvas id="hashrateChart"></canvas>
+      <canvas id="throughputChart"></canvas>
       <div class="chart-tooltip" id="chartTooltip"></div>
     </div>
   </div>
@@ -264,13 +264,13 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
       <div><span class="cmd">curl -sL https://raw.githubusercontent.com/EasyPoolPearl/pearlpool/main/install.sh | bash</span></div>
       <div style="margin-top:8px"><span class="comment"># Start the pool</span></div>
       <div><span class="cmd">./pearlpool --wallet prl1pYOUR_WALLET_ADDRESS</span></div>
-      <div style="margin-top:8px"><span class="comment"># Connect your miner</span></div>
-      <div><span class="cmd">alpha-miner --pool stratum+tcp://YOUR_HOST:3333 --wallet prl1pYOUR_ADDR</span></div>
+      <div style="margin-top:8px"><span class="comment"># Connect your worker</span></div>
+      <div><span class="cmd">alpha-worker --pool tcp://YOUR_HOST:3333 --wallet prl1pYOUR_ADDR</span></div>
     </div>
     <div class="endpoints">
       <div class="endpoint">
         <span class="proto">Stratum</span>
-        <span class="host mono">stratum+tcp://0.0.0.0:3333</span>
+        <span class="host mono">tcp://0.0.0.0:3333</span>
       </div>
       <div class="endpoint">
         <span class="proto">API</span>
@@ -281,7 +281,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 
   <!-- Footer -->
   <div class="footer">
-    PearlPool v2.0.0 &middot; Open-source PRL Mining Pool &middot;
+    PearlPool v2.0.0 &middot; Open-source PRL Compute Cluster &middot;
     <a href="https://github.com/EasyPoolPearl/pearlpool" target="_blank">GitHub</a> &middot;
     MIT License
   </div>
@@ -293,7 +293,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   'use strict';
 
   // === Utilities ===
-  function formatHashrate(h) {
+  function formatThroughput(h) {
     if (h == null || isNaN(h)) return '—';
     const units = ['H/s','KH/s','MH/s','GH/s','TH/s','PH/s'];
     let i = 0;
@@ -351,17 +351,17 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   async function updateStats() {
     const data = await fetchJSON('/api/stats');
     if (!data) return;
-    animateValue(document.getElementById('poolHashrate'), formatHashrate(data.poolHashrate));
-    animateValue(document.getElementById('activeMiners'), formatNumber(data.activeMiners));
+    animateValue(document.getElementById('poolThroughput'), formatThroughput(data.poolThroughput));
+    animateValue(document.getElementById('activeWorkers'), formatNumber(data.activeWorkers));
     animateValue(document.getElementById('blocksFound'), formatNumber(data.blocksFound));
-    animateValue(document.getElementById('networkHashrate'), formatHashrate(data.networkHashrate));
+    animateValue(document.getElementById('networkThroughput'), formatThroughput(data.networkThroughput));
     animateValue(document.getElementById('networkDifficulty'), formatNumber(data.networkDifficulty));
   }
 
-  async function updateMinerCount() {
-    const data = await fetchJSON('/api/miners');
+  async function updateWorkerCount() {
+    const data = await fetchJSON('/api/workers');
     if (data && data.count != null) {
-      animateValue(document.getElementById('activeMiners'), formatNumber(data.count));
+      animateValue(document.getElementById('activeWorkers'), formatNumber(data.count));
     }
   }
 
@@ -370,7 +370,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     if (!data || !data.blocks) return;
     const tbody = document.getElementById('blocksBody');
     if (!data.blocks.length) {
-      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:24px">No blocks found yet</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:24px">No batches processed yet</td></tr>';
       return;
     }
     tbody.innerHTML = data.blocks.slice(0, 20).map(function(b) {
@@ -384,26 +384,26 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     }).join('');
   }
 
-  // === Miner Lookup ===
-  window.lookupMiner = async function() {
-    const addr = document.getElementById('minerAddress').value.trim();
+  // === Worker Lookup ===
+  window.lookupWorker = async function() {
+    const addr = document.getElementById('workerAddress').value.trim();
     if (!addr) return;
     const btn = document.getElementById('lookupBtn');
     btn.textContent = 'Searching...';
     btn.disabled = true;
-    const data = await fetchJSON('/api/miner/' + encodeURIComponent(addr));
+    const data = await fetchJSON('/api/worker/' + encodeURIComponent(addr));
     btn.textContent = 'Search';
     btn.disabled = false;
-    const panel = document.getElementById('minerPanel');
+    const panel = document.getElementById('workerPanel');
     if (!data) {
       panel.classList.remove('visible');
       return;
     }
-    document.getElementById('minerAddrDisplay').textContent = addr;
-    document.getElementById('mHashrate').textContent = formatHashrate(data.hashrate);
+    document.getElementById('workerAddrDisplay').textContent = addr;
+    document.getElementById('mThroughput').textContent = formatThroughput(data.throughput);
     document.getElementById('mPending').textContent = formatPRL(data.pending);
     document.getElementById('mPaid').textContent = formatPRL(data.totalPaid || data.paid);
-    document.getElementById('mShares').textContent = formatNumber(data.shares || data.shares24h);
+    document.getElementById('mUnits').textContent = formatNumber(data.units || data.units24h);
     document.getElementById('mWorkers').textContent = data.workers != null ? (Array.isArray(data.workers) ? data.workers.length : data.workers) : '—';
     document.getElementById('mLastShare').textContent = timeAgo(data.lastSeen || data.lastShare);
 
@@ -418,8 +418,8 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     panel.classList.add('visible');
   };
 
-  document.getElementById('minerAddress').addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') lookupMiner();
+  document.getElementById('workerAddress').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') lookupWorker();
   });
 
   // === Copy Button ===
@@ -437,7 +437,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   let chartHoverIdx = -1;
 
   function drawChart() {
-    const canvas = document.getElementById('hashrateChart');
+    const canvas = document.getElementById('throughputChart');
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.parentElement.getBoundingClientRect();
@@ -459,11 +459,11 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
       ctx.fillStyle = '#8b949e';
       ctx.font = '14px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('No hashrate data available', w / 2, h / 2);
+      ctx.fillText('No throughput data available', w / 2, h / 2);
       return;
     }
 
-    const values = chartData.map(function(d) { return d.hashrate || 0; });
+    const values = chartData.map(function(d) { return d.throughput || 0; });
     const times = chartData.map(function(d) { return d.time; });
     const maxVal = Math.max.apply(null, values) * 1.15 || 1;
     const minVal = 0;
@@ -486,7 +486,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
       ctx.fillStyle = '#8b949e';
       ctx.font = '11px sans-serif';
       ctx.textAlign = 'right';
-      ctx.fillText(formatHashrate(val), padding.left - 8, gy + 4);
+      ctx.fillText(formatThroughput(val), padding.left - 8, gy + 4);
     }
 
     // X labels
@@ -542,7 +542,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
       var tooltip = document.getElementById('chartTooltip');
       var d = new Date(times[chartHoverIdx]);
       var tLabel = d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
-      tooltip.innerHTML = tLabel + ' — ' + formatHashrate(values[chartHoverIdx]);
+      tooltip.innerHTML = tLabel + ' — ' + formatThroughput(values[chartHoverIdx]);
       tooltip.style.display = 'block';
       var canvasRect = canvas.getBoundingClientRect();
       var contRect = canvas.parentElement.getBoundingClientRect();
@@ -551,7 +551,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     }
   }
 
-  document.getElementById('hashrateChart').addEventListener('mousemove', function(e) {
+  document.getElementById('throughputChart').addEventListener('mousemove', function(e) {
     if (!chartData || !chartData.length) return;
     var rect = this.getBoundingClientRect();
     var canvasW = parseFloat(this.style.width);
@@ -566,14 +566,14 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     }
   });
 
-  document.getElementById('hashrateChart').addEventListener('mouseleave', function() {
+  document.getElementById('throughputChart').addEventListener('mouseleave', function() {
     chartHoverIdx = -1;
     document.getElementById('chartTooltip').style.display = 'none';
     drawChart();
   });
 
   async function updateChart() {
-    var data = await fetchJSON('/api/chart/hashrate');
+    var data = await fetchJSON('/api/chart/throughput');
     if (data && data.points) {
       chartData = data.points;
       drawChart();
@@ -588,7 +588,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   updateChart();
 
   setInterval(updateStats, 10000);
-  setInterval(updateMinerCount, 30000);
+  setInterval(updateWorkerCount, 30000);
   setInterval(updateBlocks, 30000);
   setInterval(updateChart, 300000);
 

@@ -3,8 +3,8 @@
 /**
  * @fileoverview In-memory state store for PearlPool.
  *
- * Centralizes all runtime pool state: connected miners, found blocks,
- * pending payouts, pool statistics, and hashrate history.
+ * Centralizes all runtime pool state: connected workers, found blocks,
+ * pending distributions, pool statistics, and throughput history.
  * EventEmitter-based so other components can subscribe to state changes.
  *
  * @author PearlPool Contributors
@@ -14,7 +14,7 @@
 const { EventEmitter } = require('events');
 
 /**
- * Maximum number of hashrate history snapshots to retain.
+ * Maximum number of throughput history snapshots to retain.
  * At one snapshot every 5 minutes, 288 entries = 24 hours.
  */
 const MAX_HASHRATE_HISTORY = 288;
@@ -25,7 +25,7 @@ const MAX_HASHRATE_HISTORY = 288;
 const MAX_BLOCK_HISTORY = 500;
 
 /**
- * Maximum number of payout records to retain in history.
+ * Maximum number of distribution records to retain in history.
  */
 const MAX_PAYOUT_HISTORY = 1000;
 
@@ -33,68 +33,68 @@ class PoolStore extends EventEmitter {
   constructor() {
     super();
 
-    /** @type {Map<string, MinerState>} Connected miners keyed by wallet address */
-    this.miners = new Map();
+    /** @type {Map<string, WorkerState>} Connected workers keyed by wallet address */
+    this.workers = new Map();
 
     /** @type {BlockRecord[]} Ring buffer of recently found blocks */
     this.blocks = [];
 
-    /** @type {Map<string, PendingBalance>} Pending payout balances keyed by address */
-    this.pendingPayouts = new Map();
+    /** @type {Map<string, PendingBalance>} Pending distribution balances keyed by address */
+    this.pendingDistributions = new Map();
 
     /** @type {PoolStats} Aggregate pool statistics */
     this.stats = {
-      totalHashrate: 0,
-      connectedMiners: 0,
+      totalThroughput: 0,
+      connectedWorkers: 0,
       blocksFound: 0,
       uptime: Date.now(),
       networkDifficulty: 0,
-      networkHashrate: 0,
+      networkThroughput: 0,
       networkHeight: 0,
       lastBlockTime: null,
     };
 
-    /** @type {HashrateSnapshot[]} 24h rolling hashrate history */
-    this.hashrateHistory = [];
+    /** @type {ThroughputSnapshot[]} 24h rolling throughput history */
+    this.throughputHistory = [];
 
-    /** @type {PayoutRecord[]} History of completed payouts */
-    this.payoutHistory = [];
+    /** @type {DistributionRecord[]} History of completed distributions */
+    this.distributionHistory = [];
   }
 
   // ---------------------------------------------------------------------------
-  // Miner management
+  // Worker management
   // ---------------------------------------------------------------------------
 
   /**
-   * Get the state object for a single miner.
-   * @param {string} address - Miner wallet address
-   * @returns {MinerState|null}
+   * Get the state object for a single worker.
+   * @param {string} address - Worker wallet address
+   * @returns {WorkerState|null}
    */
-  getMiner(address) {
-    return this.miners.get(address) || null;
+  getWorker(address) {
+    return this.workers.get(address) || null;
   }
 
   /**
-   * Return an array of every connected miner and their stats.
-   * @returns {MinerState[]}
+   * Return an array of every connected worker and their stats.
+   * @returns {WorkerState[]}
    */
-  getAllMiners() {
-    return Array.from(this.miners.values());
+  getAllWorkers() {
+    return Array.from(this.workers.values());
   }
 
   /**
-   * Upsert a miner's state.  Merges partial updates into the existing record
+   * Upsert a worker's state.  Merges partial updates into the existing record
    * so callers can send only the fields that changed.
    *
    * @param {string} address - Wallet address (primary key)
-   * @param {Partial<MinerState>} data - Fields to merge
-   * @returns {MinerState} The merged miner record
+   * @param {Partial<WorkerState>} data - Fields to merge
+   * @returns {WorkerState} The merged worker record
    */
-  updateMiner(address, data) {
-    const existing = this.miners.get(address) || {
+  updateWorker(address, data) {
+    const existing = this.workers.get(address) || {
       address,
-      hashrate: 0,
-      shares: 0,
+      throughput: 0,
+      units: 0,
       accepted: 0,
       rejected: 0,
       lastSeen: Date.now(),
@@ -103,28 +103,28 @@ class PoolStore extends EventEmitter {
     };
 
     const updated = { ...existing, ...data, address, lastSeen: Date.now() };
-    this.miners.set(address, updated);
+    this.workers.set(address, updated);
 
-    this.emit('minerUpdated', updated);
-    this._recalcPoolHashrate();
+    this.emit('workerUpdated', updated);
+    this._recalcPoolThroughput();
 
     return updated;
   }
 
   /**
-   * Register a new worker (rig) under a miner address.
-   * If the miner doesn't exist yet, creates a blank record first.
+   * Register a new worker (rig) under a worker address.
+   * If the worker doesn't exist yet, creates a blank record first.
    *
    * @param {string} address
    * @param {string} workerId
    * @param {string} [ip]
-   * @returns {MinerState}
+   * @returns {WorkerState}
    */
   addWorker(address, workerId, ip) {
-    const miner = this.miners.get(address) || {
+    const worker = this.workers.get(address) || {
       address,
-      hashrate: 0,
-      shares: 0,
+      throughput: 0,
+      units: 0,
       accepted: 0,
       rejected: 0,
       lastSeen: Date.now(),
@@ -132,46 +132,46 @@ class PoolStore extends EventEmitter {
       workers: [],
     };
 
-    const existingIdx = miner.workers.findIndex((w) => w.id === workerId);
+    const existingIdx = worker.workers.findIndex((w) => w.id === workerId);
     if (existingIdx === -1) {
-      miner.workers.push({ id: workerId, ip: ip || 'unknown', connectedAt: Date.now(), hashrate: 0 });
+      worker.workers.push({ id: workerId, ip: ip || 'unknown', connectedAt: Date.now(), throughput: 0 });
     } else {
-      miner.workers[existingIdx].lastSeen = Date.now();
-      if (ip) miner.workers[existingIdx].ip = ip;
+      worker.workers[existingIdx].lastSeen = Date.now();
+      if (ip) worker.workers[existingIdx].ip = ip;
     }
 
-    miner.lastSeen = Date.now();
-    this.miners.set(address, miner);
+    worker.lastSeen = Date.now();
+    this.workers.set(address, worker);
     this.emit('workerAdded', { address, workerId });
-    return miner;
+    return worker;
   }
 
   /**
-   * Remove a miner entirely (e.g. on disconnect with no remaining workers).
+   * Remove a worker entirely (e.g. on disconnect with no remaining workers).
    * @param {string} address
-   * @returns {boolean} true if the miner existed and was removed
+   * @returns {boolean} true if the worker existed and was removed
    */
-  removeMiner(address) {
-    const existed = this.miners.delete(address);
+  removeWorker(address) {
+    const existed = this.workers.delete(address);
     if (existed) {
-      this.emit('minerRemoved', address);
-      this._recalcPoolHashrate();
+      this.emit('workerRemoved', address);
+      this._recalcPoolThroughput();
     }
     return existed;
   }
 
   /**
-   * Recalculate the pool-wide aggregate hashrate from all connected miners.
-   * Called internally whenever a miner is added, updated, or removed.
+   * Recalculate the pool-wide aggregate throughput from all connected workers.
+   * Called internally whenever a worker is added, updated, or removed.
    * @private
    */
-  _recalcPoolHashrate() {
+  _recalcPoolThroughput() {
     let total = 0;
-    for (const miner of this.miners.values()) {
-      total += miner.hashrate || 0;
+    for (const worker of this.workers.values()) {
+      total += worker.throughput || 0;
     }
-    this.stats.totalHashrate = total;
-    this.stats.connectedMiners = this.miners.size;
+    this.stats.totalThroughput = total;
+    this.stats.connectedWorkers = this.workers.size;
   }
 
   // ---------------------------------------------------------------------------
@@ -251,55 +251,55 @@ class PoolStore extends EventEmitter {
   }
 
   // ---------------------------------------------------------------------------
-  // Pending payouts & balances
+  // Pending distributions & balances
   // ---------------------------------------------------------------------------
 
   /**
-   * Get pending balance info for a miner.
+   * Get pending balance info for a worker.
    * @param {string} address
    * @returns {PendingBalance}
    */
   getPendingBalance(address) {
-    return this.pendingPayouts.get(address) || { balance: 0, totalPaid: 0, lastPayout: null };
+    return this.pendingDistributions.get(address) || { balance: 0, totalPaid: 0, lastDistribution: null };
   }
 
   /**
-   * Credit a miner's pending balance (called after block reward distribution).
+   * Credit a worker's pending balance (called after batch reward distribution).
    * @param {string} address
    * @param {number} amount - Amount to add to pending balance (in PRL atomic units)
    */
   creditPending(address, amount) {
-    const pending = this.pendingPayouts.get(address) || { balance: 0, totalPaid: 0, lastPayout: null };
+    const pending = this.pendingDistributions.get(address) || { balance: 0, totalPaid: 0, lastDistribution: null };
     pending.balance += amount;
-    this.pendingPayouts.set(address, pending);
+    this.pendingDistributions.set(address, pending);
     this.emit('balanceCredited', { address, amount, newBalance: pending.balance });
   }
 
   /**
-   * Debit a miner's pending balance (called when a payout is sent).
+   * Debit a worker's pending balance (called when a distribution is sent).
    * @param {string} address
    * @param {number} amount
    */
   debitPending(address, amount) {
-    const pending = this.pendingPayouts.get(address);
+    const pending = this.pendingDistributions.get(address);
     if (!pending) return;
 
     pending.balance -= amount;
     if (pending.balance < 0) pending.balance = 0;
     pending.totalPaid += amount;
-    pending.lastPayout = Date.now();
+    pending.lastDistribution = Date.now();
 
-    this.pendingPayouts.set(address, pending);
+    this.pendingDistributions.set(address, pending);
     this.emit('balanceDebited', { address, amount, newBalance: pending.balance });
   }
 
   /**
-   * Return all miners with a non-zero pending balance.
+   * Return all workers with a non-zero pending balance.
    * @returns {Array<{address: string} & PendingBalance>}
    */
   getAllPendingBalances() {
     const result = [];
-    for (const [address, data] of this.pendingPayouts) {
+    for (const [address, data] of this.pendingDistributions) {
       if (data.balance > 0 || data.totalPaid > 0) {
         result.push({ address, ...data });
       }
@@ -308,15 +308,15 @@ class PoolStore extends EventEmitter {
   }
 
   // ---------------------------------------------------------------------------
-  // Payout history
+  // Distribution history
   // ---------------------------------------------------------------------------
 
   /**
-   * Append a completed payout record to the history.
-   * @param {PayoutRecord} record
+   * Append a completed distribution record to the history.
+   * @param {DistributionRecord} record
    */
-  addPayoutRecord(record) {
-    this.payoutHistory.unshift({
+  addDistributionRecord(record) {
+    this.distributionHistory.unshift({
       address: record.address,
       amount: record.amount,
       txHash: record.txHash || null,
@@ -324,20 +324,20 @@ class PoolStore extends EventEmitter {
       blockHeight: record.blockHeight || null,
     });
 
-    if (this.payoutHistory.length > MAX_PAYOUT_HISTORY) {
-      this.payoutHistory.length = MAX_PAYOUT_HISTORY;
+    if (this.distributionHistory.length > MAX_PAYOUT_HISTORY) {
+      this.distributionHistory.length = MAX_PAYOUT_HISTORY;
     }
 
-    this.emit('payoutSent', record);
+    this.emit('distributionSent', record);
   }
 
   /**
-   * Get recent payout records.
+   * Get recent distribution records.
    * @param {number} [limit=50]
-   * @returns {PayoutRecord[]}
+   * @returns {DistributionRecord[]}
    */
-  getPayoutHistory(limit = 50) {
-    return this.payoutHistory.slice(0, limit);
+  getDistributionHistory(limit = 50) {
+    return this.distributionHistory.slice(0, limit);
   }
 
   // ---------------------------------------------------------------------------
@@ -352,13 +352,13 @@ class PoolStore extends EventEmitter {
     return {
       ...this.stats,
       uptime: Date.now() - this.stats.uptime,
-      connectedMiners: this.miners.size,
-      totalHashrate: this.stats.totalHashrate,
+      connectedWorkers: this.workers.size,
+      totalThroughput: this.stats.totalThroughput,
     };
   }
 
   /**
-   * Get the current block reward (from network info or default PRL schedule).
+   * Get the current batch reward (from network info or default PRL schedule).
    * @returns {number} Block reward in satoshis
    */
   getNetworkBlockReward() {
@@ -373,8 +373,8 @@ class PoolStore extends EventEmitter {
     if (networkData.networkDifficulty !== undefined) {
       this.stats.networkDifficulty = networkData.networkDifficulty;
     }
-    if (networkData.networkHashrate !== undefined) {
-      this.stats.networkHashrate = networkData.networkHashrate;
+    if (networkData.networkThroughput !== undefined) {
+      this.stats.networkThroughput = networkData.networkThroughput;
     }
     if (networkData.networkHeight !== undefined) {
       this.stats.networkHeight = networkData.networkHeight;
@@ -383,36 +383,36 @@ class PoolStore extends EventEmitter {
   }
 
   // ---------------------------------------------------------------------------
-  // Hashrate history (24h chart data)
+  // Throughput history (24h chart data)
   // ---------------------------------------------------------------------------
 
   /**
-   * Record a hashrate snapshot. Called periodically (every 5 min) by pool.js.
+   * Record a throughput snapshot. Called periodically (every 5 min) by pool.js.
    * Automatically trims to MAX_HASHRATE_HISTORY entries (24h window).
    */
-  snapshotHashrate() {
+  snapshotThroughput() {
     const entry = {
       timestamp: Date.now(),
-      hashrate: this.stats.totalHashrate,
-      miners: this.miners.size,
+      throughput: this.stats.totalThroughput,
+      workers: this.workers.size,
     };
 
-    this.hashrateHistory.push(entry);
+    this.throughputHistory.push(entry);
 
     // Trim old entries beyond the 24h window
-    while (this.hashrateHistory.length > MAX_HASHRATE_HISTORY) {
-      this.hashrateHistory.shift();
+    while (this.throughputHistory.length > MAX_HASHRATE_HISTORY) {
+      this.throughputHistory.shift();
     }
 
-    this.emit('hashrateSnapshot', entry);
+    this.emit('throughputSnapshot', entry);
   }
 
   /**
-   * Get the full 24h hashrate history array.
-   * @returns {HashrateSnapshot[]}
+   * Get the full 24h throughput history array.
+   * @returns {ThroughputSnapshot[]}
    */
-  getHashrateHistory() {
-    return this.hashrateHistory;
+  getThroughputHistory() {
+    return this.throughputHistory;
   }
 
   // ---------------------------------------------------------------------------
@@ -420,23 +420,23 @@ class PoolStore extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   /**
-   * Record a share submission for a miner.
+   * Record a share submission for a worker.
    * @param {string} address
    * @param {boolean} accepted
    * @param {number} difficulty
    */
   recordShare(address, accepted, difficulty) {
-    const miner = this.miners.get(address);
-    if (!miner) return;
+    const worker = this.workers.get(address);
+    if (!worker) return;
 
-    miner.shares++;
+    worker.units++;
     if (accepted) {
-      miner.accepted++;
+      worker.accepted++;
     } else {
-      miner.rejected++;
+      worker.rejected++;
     }
-    miner.difficulty = difficulty;
-    miner.lastSeen = Date.now();
+    worker.difficulty = difficulty;
+    worker.lastSeen = Date.now();
 
     this.emit('share', { address, accepted, difficulty });
   }
@@ -455,12 +455,12 @@ class PoolStore extends EventEmitter {
     return {
       version: 1,
       savedAt: Date.now(),
-      miners: Array.from(this.miners.entries()),
+      workers: Array.from(this.workers.entries()),
       blocks: this.blocks,
-      pendingPayouts: Array.from(this.pendingPayouts.entries()),
+      pendingDistributions: Array.from(this.pendingDistributions.entries()),
       stats: { ...this.stats },
-      hashrateHistory: this.hashrateHistory,
-      payoutHistory: this.payoutHistory,
+      throughputHistory: this.throughputHistory,
+      distributionHistory: this.distributionHistory,
     };
   }
 
@@ -482,22 +482,22 @@ class PoolStore extends EventEmitter {
       );
     }
 
-    this.miners = new Map(Array.isArray(snapshot.miners) ? snapshot.miners : []);
+    this.workers = new Map(Array.isArray(snapshot.workers) ? snapshot.workers : []);
     this.blocks = Array.isArray(snapshot.blocks) ? snapshot.blocks : [];
-    this.pendingPayouts = new Map(
-      Array.isArray(snapshot.pendingPayouts) ? snapshot.pendingPayouts : []
+    this.pendingDistributions = new Map(
+      Array.isArray(snapshot.pendingDistributions) ? snapshot.pendingDistributions : []
     );
     if (snapshot.stats && typeof snapshot.stats === 'object') {
       this.stats = { ...this.stats, ...snapshot.stats, uptime: Date.now() };
     }
-    this.hashrateHistory = Array.isArray(snapshot.hashrateHistory)
-      ? snapshot.hashrateHistory
+    this.throughputHistory = Array.isArray(snapshot.throughputHistory)
+      ? snapshot.throughputHistory
       : [];
-    this.payoutHistory = Array.isArray(snapshot.payoutHistory)
-      ? snapshot.payoutHistory
+    this.distributionHistory = Array.isArray(snapshot.distributionHistory)
+      ? snapshot.distributionHistory
       : [];
 
-    this._recalcPoolHashrate();
+    this._recalcPoolThroughput();
     this.emit('restored', { savedAt: snapshot.savedAt });
     return true;
   }
@@ -541,14 +541,14 @@ module.exports = store;
 // ---------------------------------------------------------------------------
 
 /**
- * @typedef {Object} MinerState
+ * @typedef {Object} WorkerState
  * @property {string} address - Wallet address
- * @property {number} hashrate - Current hashrate in H/s
- * @property {number} shares - Total shares submitted
- * @property {number} accepted - Accepted shares
- * @property {number} rejected - Rejected/stale shares
+ * @property {number} throughput - Current throughput in H/s
+ * @property {number} units - Total units submitted
+ * @property {number} accepted - Accepted units
+ * @property {number} rejected - Rejected/stale units
  * @property {number} lastSeen - Unix timestamp of last activity
- * @property {number} difficulty - Current share difficulty
+ * @property {number} difficulty - Current unit difficulty
  * @property {WorkerInfo[]} workers - Connected worker rigs
  */
 
@@ -557,7 +557,7 @@ module.exports = store;
  * @property {string} id - Worker identifier
  * @property {string} ip - Worker IP address
  * @property {number} connectedAt - Connection timestamp
- * @property {number} hashrate - Worker hashrate in H/s
+ * @property {number} throughput - Worker throughput in H/s
  * @property {number} [lastSeen] - Last activity timestamp
  */
 
@@ -568,7 +568,7 @@ module.exports = store;
  * @property {number} timestamp - When block was found
  * @property {number} reward - Block reward in atomic units
  * @property {number} confirmations - Current confirmation count
- * @property {string} finder - Address of the miner who found it
+ * @property {string} finder - Address of the worker who found it
  * @property {boolean} orphaned - Whether block was orphaned
  */
 
@@ -576,33 +576,33 @@ module.exports = store;
  * @typedef {Object} PendingBalance
  * @property {number} balance - Pending (unpaid) balance
  * @property {number} totalPaid - Cumulative amount paid out
- * @property {number|null} lastPayout - Timestamp of last payout, or null
+ * @property {number|null} lastDistribution - Timestamp of last distribution, or null
  */
 
 /**
  * @typedef {Object} PoolStats
- * @property {number} totalHashrate - Pool-wide hashrate in H/s
- * @property {number} connectedMiners - Number of connected miners
- * @property {number} blocksFound - Total blocks found by pool
+ * @property {number} totalThroughput - Pool-wide throughput in H/s
+ * @property {number} connectedWorkers - Number of connected workers
+ * @property {number} blocksFound - Total batches processed by pool
  * @property {number} uptime - Milliseconds since pool started
  * @property {number} networkDifficulty - Current network difficulty
- * @property {number} networkHashrate - Estimated network hashrate
+ * @property {number} networkThroughput - Estimated network throughput
  * @property {number} networkHeight - Current blockchain height
  * @property {number|null} lastBlockTime - Timestamp of last pool block
  */
 
 /**
- * @typedef {Object} HashrateSnapshot
+ * @typedef {Object} ThroughputSnapshot
  * @property {number} timestamp - Snapshot time
- * @property {number} hashrate - Pool hashrate at snapshot
- * @property {number} miners - Connected miner count at snapshot
+ * @property {number} throughput - Pool throughput at snapshot
+ * @property {number} workers - Connected worker count at snapshot
  */
 
 /**
- * @typedef {Object} PayoutRecord
+ * @typedef {Object} DistributionRecord
  * @property {string} address - Recipient address
- * @property {number} amount - Payout amount
+ * @property {number} amount - Distribution amount
  * @property {string|null} txHash - Transaction hash
- * @property {number} timestamp - When payout was sent
+ * @property {number} timestamp - When distribution was sent
  * @property {number|null} [blockHeight] - Associated block height
  */

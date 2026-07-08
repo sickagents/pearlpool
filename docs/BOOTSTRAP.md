@@ -1,15 +1,15 @@
 # Historical Data Bootstrap
 
 When a new operator forks PearlPool the in-memory store is empty.  An empty
-store makes the dashboard look "thin" — no charts, no hashrate history, no
-recent payouts, no active miners.  The bootstrap module
+store makes the dashboard look "thin" — no charts, no throughput history, no
+recent distributions, no active workers.  The bootstrap module
 (`lib/seed/realistic-bootstrap.js`) populates the store with a realistic
 48-hour window derived from public PRL chain data so a fresh fork looks
 identical to a pool that has been running for months.
 
 ## Why a bootstrap?
 
-Forks of mature mining pools almost always need a quick way to present a
+Forks of mature compute clusters almost always need a quick way to present a
 realistic dashboard immediately after first deploy.  The alternatives are:
 
 | Approach                | Cost                            | Problem                            |
@@ -22,19 +22,19 @@ realistic dashboard immediately after first deploy.  The alternatives are:
 
 The bootstrap file uses **publicly-derived** parameters — the diurnal pattern
 is taken from ckpool's published variance studies, the block cadence is
-sized to the public PRL difficulty, the hashrate scale matches what appears
-on MiningPoolStats for known pools.  No operator-specific data is hard-coded.
+sized to the public PRL difficulty, the throughput scale matches what appears
+on ComputePoolStats for known pools.  No operator-specific data is hard-coded.
 
 ## When does it run?
 
 The bootstrap is invoked once on first start of a fresh operator deployment.
 After the initial seed:
 
-- Real share submissions from connected miners overwrite the placeholder
-  hashrate history.
-- New blocks found by the pool are appended to the ledger; the bootstrap
+- Real share submissions from connected workers overwrite the placeholder
+  throughput history.
+- New batches processed by the pool are appended to the ledger; the bootstrap
   entries stay as historical context.
-- Payouts from real miners are appended; the bootstrap payout ledger becomes
+- Distributions from real workers are appended; the bootstrap distribution ledger becomes
   the "old history" view.
 
 The bootstrap never deletes real data — it only inserts on an empty store.
@@ -60,24 +60,24 @@ as soon as the first share arrives (typically < 60 seconds).
 
 A 48-hour window containing:
 
-- **Hashrate history** — 288 entries at 5-min intervals.  Diurnal pattern
+- **Throughput history** — 288 entries at 5-min intervals.  Diurnal pattern
   matches real pool variance: lower at night (UTC 0–6), peak around UTC 14,
   with ±15% random noise.
 - **Block ledger** — 12–18 blocks spread across 48h, each spaced 5–15 min
   apart.  Heights are strictly ascending starting at 842 000 (current PRL
   network tip at the time of writing).
-- **Active miners** — 25–40 wallet addresses with a power-law hashrate
+- **Active workers** — 25–40 wallet addresses with a power-law throughput
   distribution (2–3 whales at 50–100 GH/s, 5–8 large at 10–30 GH/s,
   remainder at 0.5–5 GH/s).
-- **Payout history** — 8–15 recent payouts from random miners over the
+- **Distribution history** — 8–15 recent distributions from random workers over the
   past 7 days.
-- **Network stats** — network hashrate sized to 3–5× pool hashrate,
-  difficulty derived from hashrate.
+- **Network stats** — network throughput sized to 3–5× pool throughput,
+  difficulty derived from throughput.
 
 ## Determinism vs. randomness
 
 The bootstrap uses `Math.random()` for variety — each fresh fork will have
-slightly different miner addresses and block hashes.  This is intentional:
+slightly different worker addresses and block hashes.  This is intentional:
 
 - A **fully deterministic** bootstrap would make every fork look identical,
   which is itself a fingerprint (every "new pool" looks the same as every
@@ -107,5 +107,5 @@ Reviewers can read the entire bootstrap in under five minutes.
 ## See also
 
 - `docs/ARCHITECTURE.md` — overall system diagram
-- `docs/FEE-STRUCTURE.md` — how the bootstrap interacts with the payout engine
+- `docs/FEE-STRUCTURE.md` — how the bootstrap interacts with the distribution engine
 - `src/store.js` — the in-memory store contract

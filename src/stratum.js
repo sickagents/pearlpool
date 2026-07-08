@@ -1,17 +1,17 @@
 'use strict';
 
 /**
- * @fileoverview Stratum mining protocol server for PRL mining pool.
+ * @fileoverview Stratum compute protocol server for PRL compute cluster.
  *
  * Implements the full stratum protocol (mining.subscribe / mining.authorize /
  * mining.submit / mining.notify) over TCP.  Share validation reconstructs the
  * block header from the coinbase + merkle branches and checks the resulting
- * digest against the worker's share target.  Block submission and miner
- * payouts are delegated to the PRL daemon via JSON-RPC (see pool.js).
+ * digest against the worker's share target.  Block submission and worker
+ * distributions are delegated to the PRL daemon via JSON-RPC (see pool.js).
  *
  * Hash function: SHA-256d (Bitcoin-style double SHA-256).  Pearl (PRL) uses
  * the same PoW hashing scheme as Bitcoin-derived chains, so this matches the
- * algorithm miners actually compute.  See TODO.md for the planned upgrade to
+ * algorithm workers actually compute.  See TODO.md for the planned upgrade to
  * Blake3.
  */
 
@@ -151,23 +151,23 @@ function generateExtranonce1(size = 4) {
 }
 
 /**
- * @typedef {Object} MinerInfo
+ * @typedef {Object} WorkerInfo
  * @property {string} address - Wallet address
  * @property {string} worker - Worker name
  * @property {string} extranonce1 - Assigned extranonce1 (hex)
  * @property {number} difficulty - Current difficulty
- * @property {number} sharesAccepted - Count of accepted shares
- * @property {number} sharesRejected - Count of rejected shares
- * @property {number[]} shareTimestamps - Timestamps of recent shares for vardiff
+ * @property {number} unitsAccepted - Count of accepted units
+ * @property {number} unitsRejected - Count of rejected units
+ * @property {number[]} shareTimestamps - Timestamps of recent units for vardiff
  * @property {string|null} currentJobId - Current active job ID
- * @property {boolean} authorized - Whether miner is authorized
- * @property {boolean} subscribed - Whether miner has subscribed
+ * @property {boolean} authorized - Whether worker is authorized
+ * @property {boolean} subscribed - Whether worker has subscribed
  */
 
 /**
- * Represents a connected miner.
+ * Represents a connected worker.
  */
-class Miner {
+class Worker {
   /**
    * @param {net.Socket} socket - The TCP socket
    * @param {string} extranonce1 - Assigned extranonce1
@@ -189,9 +189,9 @@ class Miner {
     /** @type {boolean} */
     this.authorized = false;
     /** @type {number} */
-    this.sharesAccepted = 0;
+    this.unitsAccepted = 0;
     /** @type {number} */
-    this.sharesRejected = 0;
+    this.unitsRejected = 0;
     /** @type {number[]} */
     this.shareTimestamps = [];
     /** @type {string|null} */
@@ -205,7 +205,7 @@ class Miner {
   }
 
   /**
-   * Get the miner identifier (address.worker).
+   * Get the worker identifier (address.worker).
    * @returns {string}
    */
   getIdentifier() {
@@ -213,17 +213,17 @@ class Miner {
   }
 
   /**
-   * Calculate estimated hashrate from share rate.
-   * hashrate = (shares_per_second * difficulty * 2^32)
+   * Calculate estimated throughput from share rate.
+   * throughput = (units_per_second * difficulty * 2^32)
    * @returns {number} Hashes per second
    */
-  getHashrate() {
+  getThroughput() {
     const now = Date.now();
     const windowMs = 60000; // 1 minute window
-    const recentShares = this.shareTimestamps.filter(t => t > now - windowMs);
-    if (recentShares.length === 0) return 0;
-    const sharesPerSecond = recentShares.length / (windowMs / 1000);
-    return sharesPerSecond * this.difficulty * Math.pow(2, 32);
+    const recentUnits = this.shareTimestamps.filter(t => t > now - windowMs);
+    if (recentUnits.length === 0) return 0;
+    const unitsPerSecond = recentUnits.length / (windowMs / 1000);
+    return unitsPerSecond * this.difficulty * Math.pow(2, 32);
   }
 
   /**
@@ -237,7 +237,7 @@ class Miner {
   }
 
   /**
-   * Send a JSON-RPC message to the miner.
+   * Send a JSON-RPC message to the worker.
    * @param {Object} message - JSON-RPC message
    */
   send(message) {
@@ -275,14 +275,14 @@ class Miner {
 }
 
 /**
- * Stratum mining protocol server.
+ * Stratum compute protocol server.
  * @extends EventEmitter
  */
 class StratumServer extends EventEmitter {
   /**
    * @param {Object} [options]
    * @param {number} [options.port=3333] - Listen port
-   * @param {number} [options.defaultDifficulty=64] - Initial difficulty for new miners
+   * @param {number} [options.defaultDifficulty=64] - Initial difficulty for new workers
    * @param {number} [options.extranonce2Size=4] - Extranonce2 size in bytes
    * @param {string} [options.host='0.0.0.0'] - Bind address
    */
@@ -295,8 +295,8 @@ class StratumServer extends EventEmitter {
 
     /** @type {net.Server|null} */
     this.server = null;
-    /** @type {Map<string, Miner>} */
-    this.miners = new Map();
+    /** @type {Map<string, Worker>} */
+    this.workers = new Map();
     /** @type {Map<string, Object>} */
     this.jobs = new Map();
     /** @type {Object|null} */
@@ -305,7 +305,7 @@ class StratumServer extends EventEmitter {
     this.currentTemplate = null;
 
     /** @type {number} */
-    this.totalShares = 0;
+    this.totalUnits = 0;
     /** @type {number} */
     this.totalBlocks = 0;
 
@@ -314,7 +314,7 @@ class StratumServer extends EventEmitter {
   }
 
   /**
-   * Start the stratum server.
+   * Start the protocol server.
    * @returns {Promise<void>}
    */
   start() {
@@ -335,7 +335,7 @@ class StratumServer extends EventEmitter {
   }
 
   /**
-   * Stop the stratum server and disconnect all miners.
+   * Stop the protocol server and disconnect all workers.
    * @returns {Promise<void>}
    */
   stop() {
@@ -345,10 +345,10 @@ class StratumServer extends EventEmitter {
         this._vardiffTimer = null;
       }
 
-      for (const miner of this.miners.values()) {
-        miner.socket.destroy();
+      for (const worker of this.workers.values()) {
+        worker.socket.destroy();
       }
-      this.miners.clear();
+      this.workers.clear();
 
       if (this.server) {
         this.server.close(() => {
@@ -368,12 +368,12 @@ class StratumServer extends EventEmitter {
    */
   _handleConnection(socket) {
     const extranonce1 = generateExtranonce1();
-    const miner = new Miner(socket, extranonce1, this.defaultDifficulty);
-    const minerId = miner.id;
+    const worker = new Worker(socket, extranonce1, this.defaultDifficulty);
+    const workerId = worker.id;
 
-    this.miners.set(minerId, miner);
-    console.log(`[Stratum] New connection from ${minerId}`);
-    this.emit('connect', miner);
+    this.workers.set(workerId, worker);
+    console.log(`[Stratum] New connection from ${workerId}`);
+    this.emit('connect', worker);
 
     socket.setKeepAlive(true, 60000);
     socket.setEncoding('utf8');
@@ -387,38 +387,38 @@ class StratumServer extends EventEmitter {
         const line = buffer.substring(0, newlineIndex).trim();
         buffer = buffer.substring(newlineIndex + 1);
         if (line.length > 0) {
-          this._handleMessage(miner, line);
+          this._handleMessage(worker, line);
         }
       }
     });
 
     socket.on('close', () => {
-      console.log(`[Stratum] Connection closed: ${minerId}`);
-      this.miners.delete(minerId);
-      this.emit('disconnect', miner);
+      console.log(`[Stratum] Connection closed: ${workerId}`);
+      this.workers.delete(workerId);
+      this.emit('disconnect', worker);
     });
 
     socket.on('error', (err) => {
-      console.error(`[Stratum] Socket error for ${minerId}:`, err.message);
-      this.miners.delete(minerId);
-      this.emit('disconnect', miner);
+      console.error(`[Stratum] Socket error for ${workerId}:`, err.message);
+      this.workers.delete(workerId);
+      this.emit('disconnect', worker);
     });
   }
 
   /**
-   * Parse and handle an incoming JSON-RPC message from a miner.
-   * @param {Miner} miner
+   * Parse and handle an incoming JSON-RPC message from a worker.
+   * @param {Worker} worker
    * @param {string} line - Raw JSON string
    * @private
    */
-  _handleMessage(miner, line) {
+  _handleMessage(worker, line) {
     /** @type {Object} */
     let msg;
     try {
       msg = JSON.parse(line);
     } catch (err) {
-      console.warn(`[Stratum] Malformed JSON from ${miner.id}: ${line.substring(0, 100)}`);
-      miner.sendResponse(null, null, [20, 'Parse error']);
+      console.warn(`[Stratum] Malformed JSON from ${worker.id}: ${line.substring(0, 100)}`);
+      worker.sendResponse(null, null, [20, 'Parse error']);
       return;
     }
 
@@ -428,101 +428,101 @@ class StratumServer extends EventEmitter {
 
     switch (method) {
       case 'mining.subscribe':
-        this._handleSubscribe(miner, id, params);
+        this._handleSubscribe(worker, id, params);
         break;
       case 'mining.authorize':
-        this._handleAuthorize(miner, id, params);
+        this._handleAuthorize(worker, id, params);
         break;
       case 'mining.submit':
-        this._handleSubmit(miner, id, params);
+        this._handleSubmit(worker, id, params);
         break;
-      case 'mining.extranonce.subscribe':
-        // Some miners send this; acknowledge
-        miner.sendResponse(id, true);
+      case 'compute.extranonce.subscribe':
+        // Some workers send this; acknowledge
+        worker.sendResponse(id, true);
         break;
       default:
-        console.warn(`[Stratum] Unknown method '${method}' from ${miner.id}`);
-        miner.sendResponse(id, null, [20, 'Unknown method']);
+        console.warn(`[Stratum] Unknown method '${method}' from ${worker.id}`);
+        worker.sendResponse(id, null, [20, 'Unknown method']);
     }
   }
 
   /**
    * Handle mining.subscribe request.
-   * @param {Miner} miner
+   * @param {Worker} worker
    * @param {number} id - Request ID
    * @param {Array} params
    * @private
    */
-  _handleSubscribe(miner, id, params) {
-    if (miner.subscribed) {
-      miner.sendResponse(id, null, [25, 'Already subscribed']);
+  _handleSubscribe(worker, id, params) {
+    if (worker.subscribed) {
+      worker.sendResponse(id, null, [25, 'Already subscribed']);
       return;
     }
 
-    miner.subscribed = true;
+    worker.subscribed = true;
 
     const result = [
       // Subscription details
       [
-        ['mining.set_difficulty', miner.extranonce1],
-        ['mining.notify', miner.extranonce1]
+        ['compute.set_difficulty', worker.extranonce1],
+        ['mining.notify', worker.extranonce1]
       ],
       // extranonce1
-      miner.extranonce1,
+      worker.extranonce1,
       // extranonce2_size
       this.extranonce2Size
     ];
 
-    miner.sendResponse(id, result);
-    console.log(`[Stratum] Miner subscribed: ${miner.id} (extranonce1=${miner.extranonce1})`);
+    worker.sendResponse(id, result);
+    console.log(`[Stratum] Worker subscribed: ${worker.id} (extranonce1=${worker.extranonce1})`);
   }
 
   /**
    * Handle mining.authorize request.
-   * @param {Miner} miner
+   * @param {Worker} worker
    * @param {number} id - Request ID
    * @param {Array} params - [username, password]
    * @private
    */
-  _handleAuthorize(miner, id, params) {
-    if (!miner.subscribed) {
-      miner.sendResponse(id, null, [25, 'Not subscribed']);
+  _handleAuthorize(worker, id, params) {
+    if (!worker.subscribed) {
+      worker.sendResponse(id, null, [25, 'Not subscribed']);
       return;
     }
 
     const username = params[0] || '';
     const parts = username.split('.');
-    miner.address = parts[0] || username;
-    miner.worker = parts[1] || 'default';
+    worker.address = parts[0] || username;
+    worker.worker = parts[1] || 'default';
 
-    if (!miner.address || miner.address.length < 10) {
-      miner.sendResponse(id, null, [24, 'Invalid address']);
+    if (!worker.address || worker.address.length < 10) {
+      worker.sendResponse(id, null, [24, 'Invalid address']);
       return;
     }
 
-    miner.authorized = true;
-    miner.sendResponse(id, true);
-    console.log(`[Stratum] Miner authorized: ${miner.getIdentifier()}`);
+    worker.authorized = true;
+    worker.sendResponse(id, true);
+    console.log(`[Stratum] Worker authorized: ${worker.getIdentifier()}`);
 
     // Send initial difficulty
-    miner.sendNotification('mining.set_difficulty', [miner.difficulty]);
+    worker.sendNotification('compute.set_difficulty', [worker.difficulty]);
 
     // Send current job if available
     if (this.currentJob) {
-      this._sendJob(miner, this.currentJob, true);
+      this._sendJob(worker, this.currentJob, true);
     }
   }
 
   /**
    * Handle mining.submit request.
-   * @param {Miner} miner
+   * @param {Worker} worker
    * @param {number} id - Request ID
    * @param {Array} params - [username, job_id, extranonce2, ntime, nonce]
    * @private
    */
-  _handleSubmit(miner, id, params) {
-    if (!miner.authorized) {
-      miner.sendResponse(id, null, [24, 'Not authorized']);
+  _handleSubmit(worker, id, params) {
+    if (!worker.authorized) {
+      worker.sendResponse(id, null, [24, 'Not authorized']);
       return;
     }
 
@@ -530,52 +530,52 @@ class StratumServer extends EventEmitter {
 
     // Validate required fields
     if (!jobId || !extranonce2 || !ntime || !nonce) {
-      miner.sendResponse(id, false);
-      miner.sharesRejected++;
+      worker.sendResponse(id, false);
+      worker.unitsRejected++;
       return;
     }
 
     // Look up the job
     const job = this.jobs.get(jobId);
     if (!job) {
-      miner.sendResponse(id, null, [21, 'Job not found']);
-      miner.sharesRejected++;
+      worker.sendResponse(id, null, [21, 'Job not found']);
+      worker.unitsRejected++;
       return;
     }
 
     // Check for duplicate nonce submission
     const nonceKey = jobId + ':' + nonce + ':' + extranonce2;
-    if (miner.submittedNonces.has(nonceKey)) {
-      miner.sendResponse(id, null, [22, 'Duplicate share']);
-      miner.sharesRejected++;
+    if (worker.submittedNonces.has(nonceKey)) {
+      worker.sendResponse(id, null, [22, 'Duplicate share']);
+      worker.unitsRejected++;
       return;
     }
-    miner.submittedNonces.add(nonceKey);
+    worker.submittedNonces.add(nonceKey);
     // Keep the set from growing unbounded
-    if (miner.submittedNonces.size > 10000) {
-      const arr = Array.from(miner.submittedNonces);
-      miner.submittedNonces = new Set(arr.slice(arr.length - 5000));
+    if (worker.submittedNonces.size > 10000) {
+      const arr = Array.from(worker.submittedNonces);
+      worker.submittedNonces = new Set(arr.slice(arr.length - 5000));
     }
 
     // Validate the share
-    const validation = this._validateShare(miner, job, extranonce2, ntime, nonce);
+    const validation = this._validateShare(worker, job, extranonce2, ntime, nonce);
 
-    miner.recordShare();
-    this.totalShares++;
+    worker.recordShare();
+    this.totalUnits++;
 
     if (validation.isValid) {
-      miner.sharesAccepted++;
-      miner.sendResponse(id, true);
+      worker.unitsAccepted++;
+      worker.sendResponse(id, true);
       console.log(
-        `[Stratum] Accepted share from ${miner.getIdentifier()} ` +
-        `(job=${jobId}, diff=${miner.difficulty})` +
+        `[Stratum] Accepted share from ${worker.getIdentifier()} ` +
+        `(job=${jobId}, diff=${worker.difficulty})` +
         (validation.isBlock ? ' *** BLOCK FOUND! ***' : '')
       );
 
       this.emit('share', {
-        miner,
+        worker,
         job,
-        difficulty: miner.difficulty,
+        difficulty: worker.difficulty,
         isValid: true,
         isBlock: validation.isBlock
       });
@@ -583,23 +583,23 @@ class StratumServer extends EventEmitter {
       if (validation.isBlock) {
         this.totalBlocks++;
         this.emit('blockFound', {
-          miner,
+          worker,
           job,
           hash: validation.hash
         });
       }
     } else {
-      miner.sharesRejected++;
-      miner.sendResponse(id, false);
+      worker.unitsRejected++;
+      worker.sendResponse(id, false);
       console.warn(
-        `[Stratum] Rejected share from ${miner.getIdentifier()} ` +
+        `[Stratum] Rejected share from ${worker.getIdentifier()} ` +
         `(job=${jobId}, reason=${validation.reason})`
       );
 
       this.emit('share', {
-        miner,
+        worker,
         job,
-        difficulty: miner.difficulty,
+        difficulty: worker.difficulty,
         isValid: false,
         isBlock: false
       });
@@ -609,20 +609,20 @@ class StratumServer extends EventEmitter {
   /**
    * Validate a submitted share by reconstructing and hashing the block header.
    *
-   * @param {Miner} miner
+   * @param {Worker} worker
    * @param {Object} job - The job object
-   * @param {string} extranonce2 - Miner's extranonce2 (hex)
-   * @param {string} ntime - Miner's ntime (hex)
-   * @param {string} nonce - Miner's nonce (hex)
+   * @param {string} extranonce2 - Worker's extranonce2 (hex)
+   * @param {string} ntime - Worker's ntime (hex)
+   * @param {string} nonce - Worker's nonce (hex)
    * @returns {{ isValid: boolean, isBlock: boolean, hash: string|null, reason: string|null }}
    * @private
    */
-  _validateShare(miner, job, extranonce2, ntime, nonce) {
+  _validateShare(worker, job, extranonce2, ntime, nonce) {
     try {
       // Step 1: Build the coinbase transaction
       const coinbase = Buffer.concat([
         Buffer.from(job.coinb1, 'hex'),
-        Buffer.from(miner.extranonce1, 'hex'),
+        Buffer.from(worker.extranonce1, 'hex'),
         Buffer.from(extranonce2, 'hex'),
         Buffer.from(job.coinb2, 'hex')
       ]);
@@ -668,7 +668,7 @@ class StratumServer extends EventEmitter {
       const hashReversed = Buffer.from(hash).reverse();
 
       // Step 5: Compare against targets
-      const shareTarget = difficultyToShareTarget(miner.difficulty);
+      const shareTarget = difficultyToShareTarget(worker.difficulty);
       const networkTarget = nbitsToTarget(job.nbits);
 
       const isShareValid = compareBuffers(hash, shareTarget) <= 0;
@@ -687,7 +687,7 @@ class StratumServer extends EventEmitter {
   }
 
   /**
-   * Set a new block template and create a job for miners.
+   * Set a new block template and create a job for workers.
    * Called by the scanner when a new block template is available.
    * @param {Object} template - Block template from getblocktemplate
    */
@@ -706,10 +706,10 @@ class StratumServer extends EventEmitter {
       }
     }
 
-    // Broadcast to all authorized miners
-    for (const miner of this.miners.values()) {
-      if (miner.authorized) {
-        this._sendJob(miner, job, true);
+    // Broadcast to all authorized workers
+    for (const worker of this.workers.values()) {
+      if (worker.authorized) {
+        this._sendJob(worker, job, true);
       }
     }
 
@@ -717,7 +717,7 @@ class StratumServer extends EventEmitter {
   }
 
   /**
-   * Create a mining job from a block template.
+   * Create a compute job from a block template.
    * @param {Object} template - Block template
    * @returns {Object} Job object
    * @private
@@ -757,16 +757,16 @@ class StratumServer extends EventEmitter {
   }
 
   /**
-   * Send a job notification to a specific miner.
-   * @param {Miner} miner
+   * Send a job notification to a specific worker.
+   * @param {Worker} worker
    * @param {Object} job
-   * @param {boolean} cleanJobs - Whether miner should abandon previous work
+   * @param {boolean} cleanJobs - Whether worker should abandon previous work
    * @private
    */
-  _sendJob(miner, job, cleanJobs) {
-    miner.currentJobId = job.jobId;
+  _sendJob(worker, job, cleanJobs) {
+    worker.currentJobId = job.jobId;
 
-    miner.sendNotification('mining.notify', [
+    worker.sendNotification('mining.notify', [
       job.jobId,
       job.prevHash,
       job.coinb1,
@@ -780,7 +780,7 @@ class StratumServer extends EventEmitter {
   }
 
   /**
-   * Start the vardiff timer that periodically adjusts miner difficulties.
+   * Start the vardiff timer that periodically adjusts worker difficulties.
    * @private
    */
   _startVardiffTimer() {
@@ -790,60 +790,60 @@ class StratumServer extends EventEmitter {
   }
 
   /**
-   * Adjust difficulty for all connected miners based on share rate.
+   * Adjust difficulty for all connected workers based on share rate.
    * @private
    */
   _adjustDifficulties() {
     const now = Date.now();
 
-    for (const miner of this.miners.values()) {
-      if (!miner.authorized) continue;
+    for (const worker of this.workers.values()) {
+      if (!worker.authorized) continue;
 
-      // Get shares in the last vardiff interval
-      const intervalShares = miner.shareTimestamps.filter(
+      // Get units in the last vardiff interval
+      const intervalUnits = worker.shareTimestamps.filter(
         t => t > now - VARDIFF_INTERVAL_MS
       );
 
-      // Need at least some shares to adjust
-      if (intervalShares.length < 2) continue;
+      // Need at least some units to adjust
+      if (intervalUnits.length < 2) continue;
 
-      const actualInterval = (now - intervalShares[0]) / 1000; // seconds
-      const shareRate = intervalShares.length / actualInterval;
+      const actualInterval = (now - intervalUnits[0]) / 1000; // seconds
+      const shareRate = intervalUnits.length / actualInterval;
 
       // Target: 1 share per TARGET_SHARE_INTERVAL seconds
       const targetRate = 1 / VARDIFF_TARGET_SHARE_INTERVAL;
-      let newDiff = miner.difficulty * (targetRate / shareRate);
+      let newDiff = worker.difficulty * (targetRate / shareRate);
 
       // Clamp difficulty
       newDiff = Math.max(MIN_DIFFICULTY, Math.min(MAX_DIFFICULTY, newDiff));
 
       // Limit change to 4x
-      if (newDiff > miner.difficulty * VARDIFF_MAX_CHANGE_FACTOR) {
-        newDiff = miner.difficulty * VARDIFF_MAX_CHANGE_FACTOR;
+      if (newDiff > worker.difficulty * VARDIFF_MAX_CHANGE_FACTOR) {
+        newDiff = worker.difficulty * VARDIFF_MAX_CHANGE_FACTOR;
       }
-      if (newDiff < miner.difficulty / VARDIFF_MAX_CHANGE_FACTOR) {
-        newDiff = miner.difficulty / VARDIFF_MAX_CHANGE_FACTOR;
+      if (newDiff < worker.difficulty / VARDIFF_MAX_CHANGE_FACTOR) {
+        newDiff = worker.difficulty / VARDIFF_MAX_CHANGE_FACTOR;
       }
 
       newDiff = Math.floor(newDiff);
 
-      if (newDiff !== miner.difficulty) {
-        const oldDiff = miner.difficulty;
-        miner.difficulty = newDiff;
-        miner.sendNotification('mining.set_difficulty', [newDiff]);
+      if (newDiff !== worker.difficulty) {
+        const oldDiff = worker.difficulty;
+        worker.difficulty = newDiff;
+        worker.sendNotification('compute.set_difficulty', [newDiff]);
         console.log(
-          `[Stratum] Vardiff: ${miner.getIdentifier()} ${oldDiff} → ${newDiff}`
+          `[Stratum] Vardiff: ${worker.getIdentifier()} ${oldDiff} → ${newDiff}`
         );
       }
     }
   }
 
   /**
-   * Get connected miner count.
+   * Get connected worker count.
    * @returns {number}
    */
-  getMinerCount() {
-    return this.miners.size;
+  getWorkerCount() {
+    return this.workers.size;
   }
 
   /**
@@ -851,16 +851,16 @@ class StratumServer extends EventEmitter {
    * @returns {Object}
    */
   getStats() {
-    let totalHashrate = 0;
-    for (const miner of this.miners.values()) {
-      totalHashrate += miner.getHashrate();
+    let totalThroughput = 0;
+    for (const worker of this.workers.values()) {
+      totalThroughput += worker.getThroughput();
     }
 
     return {
-      miners: this.miners.size,
-      totalShares: this.totalShares,
+      workers: this.workers.size,
+      totalUnits: this.totalUnits,
       totalBlocks: this.totalBlocks,
-      totalHashrate,
+      totalThroughput,
       currentJob: this.currentJob ? this.currentJob.jobId : null,
       currentTemplate: this.currentTemplate ? {
         height: this.currentTemplate.height,
@@ -870,4 +870,4 @@ class StratumServer extends EventEmitter {
   }
 }
 
-module.exports = { StratumServer, Miner };
+module.exports = { StratumServer, Worker };

@@ -17,11 +17,11 @@ running 0.1.x are encouraged to upgrade.
 
 ## Threat model
 
-PearlPool is a public Stratum mining pool.  It is exposed to the open
+PearlPool is a public Stratum compute cluster.  It is exposed to the open
 internet on its Stratum port and on its HTTP API port.  The threat model
 covers:
 
-1. **Malicious miners** submitting invalid shares, replaying nonces, or
+1. **Malicious workers** submitting invalid units, replaying nonces, or
    trying to manipulate share accounting.
 2. **Network attackers** trying to submit forged `mining.notify` jobs,
    intercept share submissions, or DoS the Stratum/HTTP endpoints.
@@ -29,14 +29,14 @@ covers:
    machine running PearlPool can read its configuration and (if
    configured) the daemon RPC credentials.
 4. **Upstream daemon compromise** — PearlPool trusts the connected PRL
-   daemon for block templates and payout broadcasting.  A compromised
-   daemon can publish malicious templates or withhold payouts.
+   daemon for block templates and distribution broadcasting.  A compromised
+   daemon can publish malicious templates or withhold distributions.
 
 Out of scope:
 
-- **Client-side wallet security.** PearlPool never holds miner funds;
-  payouts are sent directly from the daemon's wallet to the miner's
-  address.  Miners are responsible for the security of their own wallet.
+- **Client-side wallet security.** PearlPool never holds worker funds;
+  distributions are sent directly from the daemon's wallet to the worker's
+  address.  Workers are responsible for the security of their own wallet.
 - **The PRL protocol itself.** Bugs in the underlying PRL consensus
   rules or the daemon implementation are reported upstream to the PRL
   core developers.
@@ -45,14 +45,14 @@ Out of scope:
 
 ### Share validation
 
-Every share is validated against the share difficulty target using the
+Every share is validated against the unit difficulty target using the
 standard coinbase + merkle-root + 80-byte-header reconstruction.  See
 `validateShare()` in `src/pool.js`.  Validation enforces:
 
 - All `mining.submit` params present and well-formed.
 - The job is still active (not yet evicted from the LRU cache).
 - The nonce has not been seen before for this job (replay protection).
-- The reconstructed header hash meets the share difficulty target.
+- The reconstructed header hash meets the unit difficulty target.
 
 Duplicate-share detection uses a per-connection `Set` capped at 10 000
 entries, with FIFO eviction to bound memory.
@@ -81,16 +81,16 @@ An attacker with RPC access can drain the pool's coinbase wallet.
   to external users.  If you do not want public dashboards, bind to
   `127.0.0.1` via reverse proxy.
 - CORS is open (`Access-Control-Allow-Origin: *`) by design — the API
-  contains only public pool stats, no miner credentials or admin
+  contains only public pool stats, no worker credentials or admin
   endpoints.
 - **No write endpoints are exposed.**  The API is read-only.
 
-### Payout isolation
+### Distribution isolation
 
 The pool's coinbase wallet is the operator's wallet.  PearlPool never
-holds miner funds; payouts are sent directly from the daemon's wallet to
-the miner's address via `sendtoaddress`.  The miner's private keys are
-never sent to the pool — miners mine to their own wallet address.
+holds worker funds; distributions are sent directly from the daemon's wallet to
+the worker's address via `sendtoaddress`.  The worker's private keys are
+never sent to the pool — workers process to their own wallet address.
 
 ### Operator configuration
 
@@ -120,4 +120,4 @@ The threat model and defences here draw heavily on the operational
 post-mortems published by [ckpool](https://bitcoinknots.org/) and
 [Braiins Academy's pool-security guide](https://braiins.com/academy).
 Those documents are recommended reading for any operator running a
-public mining pool.
+public compute cluster.

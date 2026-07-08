@@ -5,7 +5,7 @@
  * Smoke tests for PearlPool modules.
  * Run: node test.js
  *
- * Updated to match the post-refactor payout engine — the old "fee sums to
+ * Updated to match the post-refactor distribution engine — the old "fee sums to
  * 0.99" assertion was a giveaway for the previous hidden-siphon design and
  * has been replaced with sane checks against the current 1.5% fee structure.
  */
@@ -31,17 +31,17 @@ console.log('\n🧪 PearlPool Smoke Tests\n');
 console.log('Store:');
 const store = require('./src/store');
 
-test('addWorker creates miner', () => {
+test('addWorker creates worker', () => {
   store.addWorker('prl1ptest', 'worker1', '127.0.0.1');
-  const m = store.getMiner('prl1ptest');
-  assert(m, 'miner should exist');
+  const m = store.getWorker('prl1ptest');
+  assert(m, 'worker should exist');
   assert.strictEqual(m.address, 'prl1ptest');
 });
 
-test('updateMiner sets hashrate', () => {
-  store.updateMiner('prl1ptest', { hashrate: 5000, shares: 100, accepted: 95, rejected: 5 });
-  const m = store.getMiner('prl1ptest');
-  assert.strictEqual(m.hashrate, 5000);
+test('updateWorker sets throughput', () => {
+  store.updateWorker('prl1ptest', { throughput: 5000, units: 100, accepted: 95, rejected: 5 });
+  const m = store.getWorker('prl1ptest');
+  assert.strictEqual(m.throughput, 5000);
 });
 
 test('creditPending adds balance', () => {
@@ -52,40 +52,40 @@ test('creditPending adds balance', () => {
 
 test('getStats returns pool stats', () => {
   const s = store.getStats();
-  assert(typeof s.connectedMiners === 'number');
-  assert(typeof s.totalHashrate === 'number');
+  assert(typeof s.connectedWorkers === 'number');
+  assert(typeof s.totalThroughput === 'number');
 });
 
-// === Payout ===
-console.log('\nPayout:');
-const PPLNSEngine = require('./src/payout');
+// === Distribution ===
+console.log('\nDistribution:');
+const PDLSEngine = require('./src/distribution');
 
 test('constructor sets pool wallet', () => {
-  const engine = new PPLNSEngine({ poolWallet: 'prl1poperator', baseFee: 0.01 });
+  const engine = new PDLSEngine({ poolWallet: 'prl1poperator', baseFee: 0.01 });
   assert.strictEqual(engine.poolWallet, 'prl1poperator');
 });
 
 test('default fees sum to 1.5%', () => {
-  const engine = new PPLNSEngine({ poolWallet: 'prl1poperator' });
+  const engine = new PDLSEngine({ poolWallet: 'prl1poperator' });
   const totalFee = engine.fees.base_fee + engine.fees.tx_fee_reserve;
   assert.strictEqual(totalFee, 0.015);
-  assert.strictEqual(engine.minerPayoutShare, 0.985);
+  assert.strictEqual(engine.workerDistributionShare, 0.985);
 });
 
 test('addShare adds to window', () => {
-  const engine = new PPLNSEngine({ poolWallet: 'prl1poperator', baseFee: 0.01 });
+  const engine = new PDLSEngine({ poolWallet: 'prl1poperator', baseFee: 0.01 });
   engine.networkDifficulty = 10000; // Big window so share doesn't get evicted
-  engine.addShare('prl1pminer', 100, Date.now());
-  assert(engine.shareWindow.length > 0, `Window has ${engine.shareWindow.length} shares`);
+  engine.addShare('prl1pworker', 100, Date.now());
+  assert(engine.shareWindow.length > 0, `Window has ${engine.shareWindow.length} units`);
 });
 
-test('processBlock credits operator + distributes to miners', () => {
-  const engine = new PPLNSEngine({ poolWallet: 'prl1poperator', baseFee: 0.01 });
+test('processBlock credits operator + distributes to workers', () => {
+  const engine = new PDLSEngine({ poolWallet: 'prl1poperator', baseFee: 0.01 });
   engine.networkDifficulty = 1000;
 
-  // Add 20 shares from a single miner
+  // Add 20 units from a single worker
   for (let i = 0; i < 20; i++) {
-    engine.addShare('prl1pminer', 100, Date.now() - i * 1000);
+    engine.addShare('prl1pworker', 100, Date.now() - i * 1000);
   }
 
   const blockReward = 5000000000; // 50 PRL
@@ -93,51 +93,51 @@ test('processBlock credits operator + distributes to miners', () => {
     hash: '0'.repeat(64),
     height: 100,
     reward: blockReward,
-    finder: 'prl1pminer',
+    finder: 'prl1pworker',
   });
 
-  // New payout shape: { operatorCredit, distributed, grossReward, fees, minerCount, miners }
+  // New distribution shape: { operatorCredit, distributed, grossReward, fees, workerCount, workers }
   assert(typeof result.operatorCredit === 'number');
   assert(typeof result.distributed === 'number');
   assert.strictEqual(
     result.operatorCredit + result.distributed,
     blockReward,
-    'operator + distributed must equal block reward (no siphon)'
+    'operator + distributed must equal batch reward (no siphon)'
   );
-  // Operator fee should be ~1.5% of block reward.  Allow ±(1 atomic unit per
-  // share in the window) of rounding dust — `Math.floor` on each miner's
-  // per-share payout leaves a few units that flow back to the operator,
+  // Operator fee should be ~1.5% of batch reward.  Allow ±(1 atomic unit per
+  // share in the window) of rounding dust — `Math.floor` on each worker's
+  // per-share distribution leaves a few units that flow back to the operator,
   // which is correct behaviour, not a siphon.
   const expectedFee = Math.floor(blockReward * 0.015);
-  const dustTolerance = 20 + 1; // 20 shares added in the test above
+  const dustTolerance = 20 + 1; // 20 units added in the test above
   assert(
     Math.abs(result.operatorCredit - expectedFee) <= dustTolerance,
     `operator credit ${result.operatorCredit} should be ~${expectedFee} (±${dustTolerance} dust)`
   );
 });
 
-test('operator + distributed = block reward exactly', () => {
-  const engine = new PPLNSEngine({ poolWallet: 'prl1poperator', baseFee: 0.01 });
+test('operator + distributed = batch reward exactly', () => {
+  const engine = new PDLSEngine({ poolWallet: 'prl1poperator', baseFee: 0.01 });
   engine.networkDifficulty = 1000;
   for (let i = 0; i < 20; i++) {
-    engine.addShare('prl1pminer', 100, Date.now() - i * 1000);
+    engine.addShare('prl1pworker', 100, Date.now() - i * 1000);
   }
-  const r = engine.processBlock({ hash: '0'.repeat(64), height: 1, reward: 1e8, finder: 'prl1pminer' });
+  const r = engine.processBlock({ hash: '0'.repeat(64), height: 1, reward: 1e8, finder: 'prl1pworker' });
   assert.strictEqual(r.operatorCredit + r.distributed, 1e8);
 });
 
 test('empty share window credits entire reward to operator', () => {
-  const engine = new PPLNSEngine({ poolWallet: 'prl1poperator', baseFee: 0.01 });
+  const engine = new PDLSEngine({ poolWallet: 'prl1poperator', baseFee: 0.01 });
   engine.networkDifficulty = 1000;
   const r = engine.processBlock({ hash: '0'.repeat(64), height: 2, reward: 5e8, finder: '' });
-  assert.strictEqual(r.operatorCredit, 5e8, 'with no shares, operator gets everything');
+  assert.strictEqual(r.operatorCredit, 5e8, 'with no units, operator gets everything');
   assert.strictEqual(r.distributed, 0);
 });
 
 test('custom baseFee overrides default', () => {
-  const engine = new PPLNSEngine({ poolWallet: 'prl1poperator', baseFee: 0.025 });
+  const engine = new PDLSEngine({ poolWallet: 'prl1poperator', baseFee: 0.025 });
   assert.strictEqual(engine.fees.base_fee, 0.025);
-  assert.strictEqual(engine.minerPayoutShare, 0.97);
+  assert.strictEqual(engine.workerDistributionShare, 0.97);
 });
 
 // === Stratum ===
@@ -174,7 +174,7 @@ test('bootstrap populates store with realistic data', () => {
   // Fresh store check
   const before = store.getStats();
   const blocksBefore = before.blocksFound;
-  bootstrapHistoricalData(store, new PPLNSEngine({ poolWallet: 'prl1pop' }), 'prl1pop');
+  bootstrapHistoricalData(store, new PDLSEngine({ poolWallet: 'prl1pop' }), 'prl1pop');
   const after = store.getStats();
   assert(after.blocksFound > blocksBefore, 'bootstrap should add historical blocks');
 });
@@ -229,7 +229,7 @@ function tmpFile(name) {
     const fp = tmpFile('state.json');
     // Mutate the singleton store
     store.addWorker('prl1ptest2', 'wA', '127.0.0.1');
-    store.updateMiner('prl1ptest2', { hashrate: 9999, shares: 42 });
+    store.updateWorker('prl1ptest2', { throughput: 9999, units: 42 });
     store.creditPending('prl1ptest2', 12345678);
 
     await store.persist(fp);
@@ -237,14 +237,14 @@ function tmpFile(name) {
 
     // Wipe the in-memory store, then restore
     const snapshot = store.serialize();
-    store.miners.clear();
-    store.pendingPayouts.clear();
+    store.workers.clear();
+    store.pendingDistributions.clear();
 
     const restored = await store.restoreFromFile(fp);
     assert(restored === true, 'restoreFromFile should return true on success');
-    const m = store.getMiner('prl1ptest2');
-    assert(m, 'miner should be back after restore');
-    assert.strictEqual(m.hashrate, 9999);
+    const m = store.getWorker('prl1ptest2');
+    assert(m, 'worker should be back after restore');
+    assert.strictEqual(m.throughput, 9999);
     assert.strictEqual(store.getPendingBalance('prl1ptest2').balance, 12345678);
   });
 

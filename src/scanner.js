@@ -1,15 +1,15 @@
 'use strict';
 
 /**
- * @fileoverview Chain scanner / block monitor for PRL mining pool.
+ * @fileoverview Chain scanner / block monitor for PRL compute cluster.
  * Connects to a PRL node via JSON-RPC HTTP and polls for new block templates.
  *
  * Communicates with the PRL daemon using standard Bitcoin-like JSON-RPC:
- *   - getblocktemplate: Get mining block template
+ *   - getblocktemplate: Get compute block template
  *   - getblockcount: Get current block height
  *   - getblockhash: Get block hash by height
  *   - getblock: Get block details
- *   - getnetworkinfo: Get network info (hashrate, difficulty)
+ *   - getnetworkinfo: Get network info (throughput, difficulty)
  */
 
 const http = require('http');
@@ -57,8 +57,8 @@ class ChainScanner extends EventEmitter {
     this.currentHeight = 0;
     /** @type {number} Current network difficulty */
     this.currentDifficulty = 0;
-    /** @type {number} Estimated network hashrate */
-    this.networkHashrate = 0;
+    /** @type {number} Estimated network throughput */
+    this.networkThroughput = 0;
     /** @type {Object|null} Current block template */
     this.blockTemplate = null;
     /** @type {string} Current prev hash for change detection */
@@ -116,13 +116,13 @@ class ChainScanner extends EventEmitter {
 
   /**
    * Get network information (cached values from last poll).
-   * @returns {{ height: number, difficulty: number, hashrate: number }}
+   * @returns {{ height: number, difficulty: number, throughput: number }}
    */
   getNetworkInfo() {
     return {
       height: this.currentHeight,
       difficulty: this.currentDifficulty,
-      hashrate: this.networkHashrate
+      throughput: this.networkThroughput
     };
   }
 
@@ -197,7 +197,7 @@ class ChainScanner extends EventEmitter {
   }
 
   /**
-   * Fetch network information (difficulty, hashrate) from the node.
+   * Fetch network information (difficulty, throughput) from the node.
    * @private
    */
   async _fetchNetworkInfo() {
@@ -206,11 +206,11 @@ class ChainScanner extends EventEmitter {
 
       if (info) {
         this.currentDifficulty = info.difficulty || 0;
-        this.networkHashrate = info.networkhashps || info.hashrate || 0;
+        this.networkThroughput = info.networkhashps || info.throughput || 0;
 
         console.log(
           `[Scanner] Network info: difficulty=${this.currentDifficulty}, ` +
-          `hashrate=${this.networkHashrate}`
+          `throughput=${this.networkThroughput}`
         );
       }
     } catch (err) {

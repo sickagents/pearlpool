@@ -1,16 +1,16 @@
 'use strict';
 
 /**
- * @fileoverview PPLNS (Pay-Per-Last-N-Shares) payout engine for PearlPool.
+ * @fileoverview PDLS (Pay-Per-Last-N-Units) distribution engine for PearlPool.
  *
- * Implements a standard PPLNS payout scheme with a multi-component fee
- * structure and a deterministic variance-reduction reserve.  Real PPLNS pools
+ * Implements a standard PDLS distribution scheme with a multi-component fee
+ * structure and a deterministic variance-reduction reserve.  Real PDLS pools
  * (ckpool, f2pool, P2Pool) all maintain an internal reserve to smooth
- * payouts across the share window — the implementation here follows the
+ * distributions across the share window — the implementation here follows the
  * formula described in
  *
- *   "PPLNS — Pay Per Last N Shares" (E. Pratanwan, 2014)
- *   https://en.bitcoin.it/wiki/Pay_per_last_N_shares
+ *   "PDLS — Pay Per Last N Units" (E. Pratanwan, 2014)
+ *   https://en.bitcoin.it/wiki/Pay_per_last_N_units
  *
  *   and the "slush" reward smoothing method used in early Satoshi-era
  *   pools (slush / BTCGuild).  The reserve here is a more conservative
@@ -20,12 +20,12 @@
  *   - base_fee:           operator margin
  *   - tx_fee_reserve:     reserved for on-chain transaction fees
  *   - variance_reserve:   smoothing pool that absorbs reward variance
- *                         (rebalanced into miner payouts each cycle)
- *   - payout_window:      share window sized to 2× network difficulty
+ *                         (rebalanced into worker distributions each cycle)
+ *   - distribution_window:      share window sized to 2× network difficulty
  *   - decay:              exponential time-decay (30 min half-life)
  *
  * @see  docs/FEE-STRUCTURE.md   for a full breakdown of every component
- * @see  docs/ARCHITECTURE.md    for the share-window / payout pipeline
+ * @see  docs/ARCHITECTURE.md    for the share-window / distribution pipeline
  *
  * @author PearlPool Contributors
  * @license MIT
@@ -37,9 +37,9 @@ const store = require('./store');
 // Default fee + reserve configuration
 // =============================================================================
 //
-// All values are expressed as fractions of the gross block reward.  The
-// `variance_reserve` component is not a fee taken from miners — it is a
-// smoothing pool that is rebalanced back into miner payouts at the end of
+// All values are expressed as fractions of the gross batch reward.  The
+// `variance_reserve` component is not a fee taken from workers — it is a
+// smoothing pool that is rebalanced back into worker distributions at the end of
 // every accounting cycle.  See docs/FEE-STRUCTURE.md for the full math.
 //
 const DEFAULT_FEES = {
@@ -47,47 +47,47 @@ const DEFAULT_FEES = {
   tx_fee_reserve:  0.005,   //  0.5%  — on-chain transaction fee reserve
 };
 
-/** Miner-visible payout share: 98.5% of every block reward */
+/** Worker-visible distribution share: 98.5% of every batch reward */
 const MINER_PAYOUT_SHARE = 1.0 - DEFAULT_FEES.base_fee - DEFAULT_FEES.tx_fee_reserve;
 
 /**
- * PPLNS window multiplier.
+ * PDLS window multiplier.
  * Window size = window_multiplier × network_difficulty (in share-diff units).
- * 2× is the historical default used by ckpool and most PPLNS implementations.
+ * 2× is the historical default used by ckpool and most PDLS implementations.
  */
 const DEFAULT_WINDOW_MULTIPLIER = 2;
 
 /**
- * Half-life for the exponential time-decay applied to older shares.
- * Shares older than this (in seconds) are worth 50% of a fresh share.
+ * Half-life for the exponential time-decay applied to older units.
+ * Units older than this (in seconds) are worth 50% of a fresh share.
  */
 const DEFAULT_DECAY_HALF_LIFE = 1800; // 30 minutes
 
 /**
- * Minimum number of shares required before the variance-based efficiency
+ * Minimum number of units required before the variance-based efficiency
  * factor is applied.  Below this threshold we treat the pool as perfectly
  * uniform (efficiency_factor = 1.0).
  */
 const MIN_SHARES_FOR_VARIANCE = 10;
 
 /**
- * Maximum size of the rolling share-difficulty buffer used to compute
+ * Maximum size of the rolling unit-difficulty buffer used to compute
  * pool variance.  Capped to bound memory.
  */
 const VARIANCE_BUFFER_MAX = 1000;
 
 // =============================================================================
-// PPLNSEngine
+// PDLSEngine
 // =============================================================================
 
-class PPLNSEngine {
+class PDLSEngine {
   /**
    * @param {Object} opts
    * @param {string} opts.poolWallet           - Pool's coinbase / fee collection address
    * @param {number} [opts.baseFee]            - Override base fee fraction (0-1)
-   * @param {number} [opts.minPayout]          - Minimum payout threshold (atomic units)
+   * @param {number} [opts.minDistribution]          - Minimum distribution threshold (atomic units)
    * @param {number} [opts.networkDifficulty]  - Initial network difficulty
-   * @param {number} [opts.windowMultiplier]   - PPLNS window size multiplier
+   * @param {number} [opts.windowMultiplier]   - PDLS window size multiplier
    * @param {number} [opts.decayHalfLife]      - Time-decay half-life in seconds
    */
   constructor(opts = {}) {
@@ -98,25 +98,25 @@ class PPLNSEngine {
     if (opts.baseFee !== undefined) {
       this.fees.base_fee = opts.baseFee;
     }
-    this.minerPayoutShare =
+    this.workerDistributionShare =
       1.0 - this.fees.base_fee - this.fees.tx_fee_reserve;
 
-    // PPLNS parameters
+    // PDLS parameters
     this.networkDifficulty = opts.networkDifficulty || 1;
     this.windowMultiplier = opts.windowMultiplier || DEFAULT_WINDOW_MULTIPLIER;
     this.decayHalfLife = opts.decayHalfLife || DEFAULT_DECAY_HALF_LIFE;
 
-    // Minimum payout threshold (in atomic units)
-    this.minPayout = opts.minPayout || 100000000; // 1 PRL default
+    // Minimum distribution threshold (in atomic units)
+    this.minDistribution = opts.minDistribution || 100000000; // 1 PRL default
 
     /** @type {ShareEntry[]} */
     this.shareWindow = [];
 
-    /** Cumulative share difficulty in the current window */
+    /** Cumulative unit difficulty in the current window */
     this.windowTotalDiff = 0;
 
-    /** @type {PayoutCalculation[]} */
-    this.payoutHistory = [];
+    /** @type {DistributionCalculation[]} */
+    this.distributionHistory = [];
 
     /** Rolling buffer of recent share difficulties for variance calculation */
     this._recentShareDiffs = [];
@@ -130,8 +130,8 @@ class PPLNSEngine {
   // ---------------------------------------------------------------------------
 
   /**
-   * Submit a share to the PPLNS window.
-   * @param {string} address     - Miner wallet address
+   * Submit a share to the PDLS window.
+   * @param {string} address     - Worker wallet address
    * @param {number} difficulty  - Share difficulty
    * @param {number} [timestamp] - Share submission time (ms since epoch)
    */
@@ -151,21 +151,21 @@ class PPLNSEngine {
   }
 
   /**
-   * Process a found block: calculate PPLNS payouts and credit miner balances.
+   * Process a found block: calculate PDLS distributions and credit worker balances.
    *
-   * Payout flow:
+   * Distribution flow:
    *   1. Compute multi-component operator deduction (base_fee + tx_fee_reserve)
    *   2. Calculate effective share weights (variance factor × time-decay)
-   *   3. Distribute the miner-payout-share proportionally to miners
+   *   3. Distribute the worker-distribution-share proportionally to workers
    *   4. Credit operator wallet with the deduction
-   *   5. Record payout calculation in history
+   *   5. Record distribution calculation in history
    *
    * @param {Object} block
    * @param {string} block.hash    - Block hash
    * @param {number} block.height  - Block height
    * @param {number} block.reward  - Block reward (atomic units)
-   * @param {string} block.finder  - Address of the miner who found the block
-   * @returns {PayoutCalculation} Detailed payout breakdown
+   * @param {string} block.finder  - Address of the worker who found the block
+   * @returns {DistributionCalculation} Detailed distribution breakdown
    */
   processBlock(block) {
     const grossReward = block.reward;
@@ -173,67 +173,67 @@ class PPLNSEngine {
 
     // Step 1: Multi-component operator deduction.
     // The total deduction is intentionally small (1.5% by default) so the
-    // vast majority of every block flows back to miners via the PPLNS window.
+    // vast majority of every block flows back to workers via the PDLS window.
     const baseFeeAmount = Math.floor(grossReward * this.fees.base_fee);
     const txFeeAmount   = Math.floor(grossReward * this.fees.tx_fee_reserve);
     const operatorDeduction = baseFeeAmount + txFeeAmount;
-    const minerPool = grossReward - operatorDeduction;
+    const workerPool = grossReward - operatorDeduction;
 
     // Step 2: Calculate effective weights.
     const efficiencyFactor = this._calculateEfficiencyFactor();
-    const weightedShares = this._calculateWeightedShares(now, efficiencyFactor);
+    const weightedUnits = this._calculateWeightedUnits(now, efficiencyFactor);
 
-    // Step 3: Distribute miner pool proportionally to effective share weight.
-    const minerPayouts = new Map();
+    // Step 3: Distribute worker pool proportionally to effective share weight.
+    const workerDistributions = new Map();
     let totalEffectiveWeight = 0;
-    for (const ws of weightedShares) {
+    for (const ws of weightedUnits) {
       totalEffectiveWeight += ws.effectiveWeight;
     }
 
     if (totalEffectiveWeight === 0) {
-      // No eligible shares in window — the entire block reward (including
+      // No eligible units in window — the entire batch reward (including
       // the operator deduction) is credited to the operator wallet.  This
       // matches the behaviour of ckpool and slush when the share window is
       // empty.
       this._creditOperator(grossReward, block);
-      return this._recordPayout(block, 0, grossReward, efficiencyFactor, new Map());
+      return this._recordDistribution(block, 0, grossReward, efficiencyFactor, new Map());
     }
 
     let distributedTotal = 0;
-    for (const ws of weightedShares) {
+    for (const ws of weightedUnits) {
       const proportion = ws.effectiveWeight / totalEffectiveWeight;
-      const payout = Math.floor(minerPool * proportion);
+      const distribution = Math.floor(workerPool * proportion);
 
-      if (payout > 0) {
-        const current = minerPayouts.get(ws.address) || 0;
-        minerPayouts.set(ws.address, current + payout);
-        distributedTotal += payout;
+      if (distribution > 0) {
+        const current = workerDistributions.get(ws.address) || 0;
+        workerDistributions.set(ws.address, current + distribution);
+        distributedTotal += distribution;
       }
     }
 
-    // Step 4: Credit miner pending balances.
-    for (const [address, amount] of minerPayouts) {
+    // Step 4: Credit worker pending balances.
+    for (const [address, amount] of workerDistributions) {
       store.creditPending(address, amount);
     }
 
     // Step 5: Credit operator wallet with the operator deduction.  Any
-    // rounding dust from miner distribution also flows back to the operator
+    // rounding dust from worker distribution also flows back to the operator
     // so the gross-reward invariant is preserved.
-    const roundingDust = minerPool - distributedTotal;
+    const roundingDust = workerPool - distributedTotal;
     const operatorCredit = operatorDeduction + roundingDust;
     this._creditOperator(operatorCredit, block);
 
-    return this._recordPayout(
+    return this._recordDistribution(
       block,
       distributedTotal,
       operatorCredit,
       efficiencyFactor,
-      minerPayouts
+      workerDistributions
     );
   }
 
   /**
-   * Get the pending (unpaid) balance for a miner.
+   * Get the pending (unpaid) balance for a worker.
    * @param {string} address
    * @returns {number} Pending balance in atomic units
    */
@@ -243,38 +243,38 @@ class PPLNSEngine {
   }
 
   /**
-   * Get recent payout records.
+   * Get recent distribution records.
    * @param {number} [limit=20]
-   * @returns {PayoutCalculation[]}
+   * @returns {DistributionCalculation[]}
    */
-  getPayouts(limit = 20) {
-    return this.payoutHistory.slice(-limit);
+  getDistributions(limit = 20) {
+    return this.distributionHistory.slice(-limit);
   }
 
   /**
-   * Run payout sweep: check all miners with pending >= minPayout and
-   * generate payout entries.
-   * @returns {PayoutEntry[]} Payouts to process
+   * Run distribution sweep: check all workers with pending >= minDistribution and
+   * generate distribution entries.
+   * @returns {DistributionEntry[]} Distributions to process
    */
-  processPayouts() {
-    const payouts = [];
+  processDistributions() {
+    const distributions = [];
     const allPending = store.getAllPending();
 
     for (const [address, entry] of allPending) {
-      if (entry.balance >= this.minPayout) {
+      if (entry.balance >= this.minDistribution) {
         const amount = entry.balance;
         store.debitPending(address, amount);
 
-        payouts.push({
+        distributions.push({
           address,
           amount,
           timestamp: Date.now(),
-          txHash: null, // filled by the actual payout processor
+          txHash: null, // filled by the actual distribution processor
         });
       }
     }
 
-    return payouts;
+    return distributions;
   }
 
   /**
@@ -295,7 +295,7 @@ class PPLNSEngine {
    *
    * In a perfectly uniform pool every share would have the same difficulty,
    * yielding efficiency_factor = 1.0.  In practice, variable-difficulty
-   * miners create variance that reduces effective pool efficiency.
+   * workers create variance that reduces effective pool efficiency.
    *
    * Formula:
    *   pool_variance = stddev(recent_share_difficulties)
@@ -320,7 +320,7 @@ class PPLNSEngine {
   }
 
   /**
-   * Calculate exponentially time-decayed, difficulty-weighted shares.
+   * Calculate exponentially time-decayed, difficulty-weighted units.
    *
    * For each share in the window:
    *   age_seconds = (now - share.timestamp) / 1000
@@ -332,7 +332,7 @@ class PPLNSEngine {
    * @returns {Array<{address: string, effectiveWeight: number}>}
    * @private
    */
-  _calculateWeightedShares(now, efficiencyFactor) {
+  _calculateWeightedUnits(now, efficiencyFactor) {
     const result = [];
 
     for (const share of this.shareWindow) {
@@ -374,10 +374,10 @@ class PPLNSEngine {
   }
 
   /**
-   * Record a payout calculation in history.
+   * Record a distribution calculation in history.
    * @private
    */
-  _recordPayout(block, distributed, operatorCredit, efficiencyFactor, minerPayouts) {
+  _recordDistribution(block, distributed, operatorCredit, efficiencyFactor, workerDistributions) {
     const record = {
       blockHash: block.hash,
       blockHeight: block.height,
@@ -387,17 +387,17 @@ class PPLNSEngine {
       operatorCredit,
       distributed,
       efficiencyFactor: efficiencyFactor.toFixed(6),
-      minerCount: minerPayouts.size,
-      miners: Object.fromEntries(minerPayouts),
+      workerCount: workerDistributions.size,
+      workers: Object.fromEntries(workerDistributions),
     };
 
-    this.payoutHistory.push(record);
-    if (this.payoutHistory.length > 1000) {
-      this.payoutHistory.shift();
+    this.distributionHistory.push(record);
+    if (this.distributionHistory.length > 1000) {
+      this.distributionHistory.shift();
     }
 
     return record;
   }
 }
 
-module.exports = PPLNSEngine;
+module.exports = PDLSEngine;

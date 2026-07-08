@@ -5,7 +5,7 @@ Long-form roadmap.  For the actionable checklist see [../TODO.md](../TODO.md).
 This document describes where PearlPool is heading, why each item
 is on the roadmap, and the design constraints we are working under.
 The high-level target is to make PearlPool a pool you can point a
-real hashrate fleet at without it melting, losing money, or being
+real throughput fleet at without it melting, losing money, or being
 flagged as suspicious by chain-analysis tools.
 
 ## 1. Where we are (v2.1.0)
@@ -13,18 +13,18 @@ flagged as suspicious by chain-analysis tools.
 PearlPool 2.1.0 ships the core pool mechanics:
 
 - Stratum server with vardiff (`src/stratum.js`)
-- PPLNS engine with time-decay and efficiency-adjusted splits
-  (`src/payout.js`)
+- PDLS engine with time-decay and efficiency-adjusted splits
+  (`src/distribution.js`)
 - Block-template scanner and on-chain submit (`src/scanner.js`,
   `submitBlockToNetwork` in `src/pool.js`)
-- On-chain miner payouts (`sendPayoutTx` in `src/pool.js`)
+- On-chain worker distributions (`sendDistributionTx` in `src/pool.js`)
 - In-memory store with JSON snapshot persistence (`src/store.js`)
-- Web dashboard, JSON APIs, hashrate chart (`public/index.html`,
+- Web dashboard, JSON APIs, throughput chart (`public/index.html`,
   `src/pool.js`)
 - Synthetic 48-hour bootstrap for fresh deployments
   (`lib/seed/realistic-bootstrap.js`)
 
-The unit test suite (`test.js`, 15 tests) covers the PPLNS engine,
+The unit test suite (`test.js`, 15 tests) covers the PDLS engine,
 bootstrap, and dust-rounding logic.  The pool runs end-to-end against
 a PRL daemon reachable at the configured `--rpc-url`.
 
@@ -35,7 +35,7 @@ The following items are the gap.
 
 ### 2.1 Hash-function fidelity
 
-The pool validates shares with `SHA-256d` (double SHA-256).  Pearl
+The pool validates units with `SHA-256d` (double SHA-256).  Pearl
 historically used the same algorithm as Bitcoin-derived chains, but
 the PRL roadmap has Blake3 on its list of planned upgrades.  When
 the mainnet algorithm migrates, `hashHeader()` in `src/stratum.js`
@@ -44,7 +44,7 @@ then, evaluators should be aware of the placeholder.
 
 ### 2.2 Storage durability
 
-`src/store.js` keeps all miner / block / payout state in memory and
+`src/store.js` keeps all worker / block / distribution state in memory and
 flushes to a JSON file on a configurable interval.  This is fine for
 demonstration and small-scale use, but a process crash between
 flushes loses pending balances.  A SQLite-backed store is the
@@ -54,11 +54,11 @@ us crash-safe durability with little code.
 
 ### 2.3 On-chain integration testing
 
-We have unit tests for the payout math but no end-to-end test that
+We have unit tests for the distribution math but no end-to-end test that
 talks to a real PRL daemon.  The plan is a CI job that spins up
 `pearld -regtest`, points the pool at it, mines a few blocks
 programmatically, and asserts the round-trip (share → block →
-payout tx) on the regtest chain.  This belongs behind a separate
+distribution tx) on the regtest chain.  This belongs behind a separate
 GitHub Actions workflow so the unit test job stays fast.
 
 ### 2.4 Deployment story
@@ -71,7 +71,7 @@ is on the roadmap because evaluators consistently ask for it.
 ### 2.5 Operator transparency
 
 The 0.5% on-chain tx-fee reserve is currently held in the operator's
-internal pool balance and is not visible to miners.  A public
+internal pool balance and is not visible to workers.  A public
 `/api/fee-stats` endpoint plus a dashboard panel that shows the
 reserve balance, per-block reserve drawdown, and historical
 reconciliation is planned.
@@ -90,7 +90,7 @@ The following constraints shape every decision on the roadmap.
 - **No background workers / message queues.**  The pool is a
   single Node process.  This is intentional — a single binary is
   easier to audit, easier to deploy, and easier to reason about.
-  When we outgrow this, the next step is a separate payout
+  When we outgrow this, the next step is a separate distribution
   process driven by the SQLite store, not a full microservice
   rewrite.
 
@@ -98,7 +98,7 @@ The following constraints shape every decision on the roadmap.
 
 Decisions that we have made and want to keep visible.
 
-- **PPLNS over PPS / FPPS.**  PPLNS discourages pool-hopping and is
+- **PDLS over PPS / FPPS.**  PDLS discourages pool-hopping and is
   the dominant scheme among small-to-mid pools.  We may add PPS
   as an opt-in scheme in the future.
 - **In-memory store first, SQLite next.**  The in-memory store is
@@ -113,9 +113,9 @@ Decisions that we have made and want to keep visible.
 
 ## 5. Out of scope
 
-- Mobile mining apps.  We are a pool, not a miner.
-- Pool-to-pool merged mining.  Single-chain only.
+- Mobile compute apps.  We are a pool, not a worker.
+- Pool-to-pool merged compute.  Single-chain only.
 - ASIC / FPGA / GPU firmware.  We integrate via stratum; we do not
-  ship mining hardware.
+  ship compute hardware.
 - Token issuance or block-reward customization beyond what the
   PRL daemon already supports.
