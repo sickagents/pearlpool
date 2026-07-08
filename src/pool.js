@@ -574,7 +574,7 @@ function meetsNetworkDifficulty(shareDiff) {
  */
 function submitBlockToNetwork(blockHashHex, headerBuf) {
   return new Promise((resolve, reject) => {
-    const cfg = global.__babel-hubConfig || {};
+    const cfg = global.__babelhubConfig || {};
     const url = cfg.rpcUrl || DEFAULT_RPC_URL;
     const user = cfg.rpcUser || process.env.BABELHUB_RPC_USER || '';
     const pass = cfg.rpcPassword || process.env.BABELHUB_RPC_PASSWORD || '';
@@ -600,7 +600,7 @@ function submitBlockToNetwork(blockHashHex, headerBuf) {
 
     const body = JSON.stringify({
       jsonrpc: '2.0',
-      id: 'babel-hub-submitblock',
+      id: 'babelhub_submitblock',
       method: 'submitblock',
       params: [payload],
     });
@@ -663,7 +663,7 @@ function submitBlockToNetwork(blockHashHex, headerBuf) {
  */
 function sendDistributionTx(address, amount) {
   return new Promise((resolve, reject) => {
-    const cfg = global.__babel-hubConfig || {};
+    const cfg = global.__babelhubConfig || {};
     const url = cfg.rpcUrl || DEFAULT_RPC_URL;
     const user = cfg.rpcUser || process.env.BABELHUB_RPC_USER || '';
     const pass = cfg.rpcPassword || process.env.BABELHUB_RPC_PASSWORD || '';
@@ -685,7 +685,7 @@ function sendDistributionTx(address, amount) {
 
     const body = JSON.stringify({
       jsonrpc: '2.0',
-      id: 'babel-hub-distribution',
+      id: 'babelhub_distribution',
       method: 'sendtoaddress',
       params: [address, amountPRL],
     });
@@ -965,7 +965,7 @@ function startHttpServer(port, distributionEngine) {
  */
 function buildStatsResponse() {
   const stats = store.getStats();
-  const cfg = global.__babel-hubConfig || {};
+  const cfg = global.__babelhubConfig || {};
   const baseFee = cfg.fee || DEFAULT_FEE;
   const txReserve = cfg.txFeeReserve ?? DEFAULT_TX_FEE_RESERVE;
   const totalFee = baseFee + txReserve;
@@ -1190,7 +1190,7 @@ function shutdown(signal, httpServer, stratumServer) {
   stratumClients.clear();
 
   // Save final state snapshot before exit
-  const finalStateFile = require('path').join(global.__babel-hubConfig.dataDir, 'state.json');
+  const finalStateFile = require('path').join(global.__babelhubConfig.dataDir, 'state.json');
   store.persist(finalStateFile).then(() => {
     console.log(`  \x1b[32m✓\x1b[0m State snapshot saved to ${finalStateFile}`);
   }).catch((err) => {
@@ -1257,7 +1257,7 @@ function main() {
 
   // Stash config on a global so submitBlockToNetwork() can pick up RPC
   // credentials without us threading the config through every call site.
-  global.__babel-hubConfig = config;
+  global.__babelhubConfig = config;
 
   // Bootstrap / restore historical data (synchronous at startup so the
   // first worker that connects always sees a consistent view of the store):
