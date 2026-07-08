@@ -169,7 +169,7 @@ to a real hashrate fleet.
 
 ```bash
 # Clone and run
-git clone https://github.com/EasyPoolPearl/pearlpool.git
+git clone https://github.com/sickagents/pearlpool.git
 cd pearlpool
 chmod +x start.sh
 ./start.sh
@@ -189,6 +189,152 @@ chmod +x start.sh
 The wallet configured here is the **operator's wallet** — it receives
 the 1.5% operator fee from every block.  See
 [docs/FEE-STRUCTURE.md](docs/FEE-STRUCTURE.md) for the full breakdown.
+
+## Quick Start (Jupyter Notebook)
+
+Run pearlpool from a Jupyter notebook on any VPS:
+
+### Step 1 — Clone
+
+```python
+import os, subprocess, sys
+
+os.chdir(os.path.expanduser('~'))
+!rm -rf pearlpool && git clone https://github.com/sickagents/pearlpool.git
+os.chdir('pearlpool')
+print("Cloned.")
+```
+
+### Step 2 — Configure
+
+```python
+import os
+
+os.chdir(os.path.expanduser('~/pearlpool'))
+
+# ============================================================
+# EDIT THESE — never commit real values to GitHub
+# ============================================================
+OPERATOR_WALLET = "prl1pYOUR_OPERATOR_WALLET"   # receives 1.5% fee
+RPC_URL         = "http://127.0.0.1:9933"       # PRL daemon RPC
+STRATUM_PORT    = "3333"
+API_PORT        = "8080"
+# ============================================================
+
+pool_env = f"""PEARLPOOL_WALLET={OPERATOR_WALLET}
+PEARLPOOL_PORT={STRATUM_PORT}
+PEARLPOOL_API_PORT={API_PORT}
+PEARLPOOL_RPC_URL={RPC_URL}
+PEARLPOOL_FEE=0.01
+PEARLPOOL_TX_RESERVE=0.005
+"""
+
+with open('pool.env', 'w') as f:
+    f.write(pool_env)
+print("pool.env created.")
+```
+
+### Step 3 — Start Pool
+
+```python
+import os, subprocess, time
+
+os.chdir(os.path.expanduser('~/pearlpool'))
+
+proc = subprocess.Popen(
+    ['node', 'src/pool.js'],
+    stdout=open('/tmp/pearlpool.log', 'w'),
+    stderr=subprocess.STDOUT,
+    start_new_session=True
+)
+
+with open('/tmp/pearlpool.pid', 'w') as f:
+    f.write(str(proc.pid))
+
+time.sleep(3)
+get_ipython().system('tail -20 /tmp/pearlpool.log')
+print(f"\nPearlPool PID: {proc.pid}")
+```
+
+### Step 4 — Verify
+
+```python
+import socket, json, urllib.request
+
+def check_port(port):
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(3)
+        s.connect(('127.0.0.1', port))
+        s.close()
+        return True
+    except:
+        return False
+
+print(f"Stratum (3333): {'OK' if check_port(3333) else 'DOWN'}")
+print(f"API (8080):     {'OK' if check_port(8080) else 'DOWN'}")
+
+try:
+    resp = urllib.request.urlopen('http://127.0.0.1:8080/api/stats', timeout=5)
+    stats = json.loads(resp.read())
+    print(f"Pool: {stats.get('name', 'N/A')}")
+    print(f"Fee: {stats.get('fee', 'N/A')}")
+except Exception as e:
+    print(f"API: {e}")
+```
+
+### Step 5 — Open Firewall
+
+```python
+get_ipython().system('sudo ufw allow 3333/tcp comment "PearlPool stratum"')
+get_ipython().system('sudo ufw allow 8080/tcp comment "PearlPool dashboard"')
+print("Firewall rules added.")
+```
+
+### Step 6 — Management
+
+```python
+import os, signal
+
+def pool_status():
+    try:
+        with open('/tmp/pearlpool.pid') as f:
+            pid = int(f.read().strip())
+        os.kill(pid, 0)
+        print(f"Running (PID {pid})")
+    except:
+        print("Not running")
+
+def pool_log(n=30):
+    get_ipython().system(f'tail -{n} /tmp/pearlpool.log')
+
+def pool_stop():
+    try:
+        with open('/tmp/pearlpool.pid') as f:
+            pid = int(f.read().strip())
+        os.kill(pid, signal.SIGTERM)
+        print(f"Stopped (PID {pid})")
+    except:
+        print("Not running")
+
+print("Functions:")
+print("  pool_status()   — Check if running")
+print("  pool_log(50)    — View logs")
+print("  pool_stop()     — Stop pool")
+```
+
+### Step 7 — Tell Miner Your IP
+
+After pearlpool is running, give your VPS IP to the miner config:
+
+```
+Miner config.env:
+  RELAY=YOUR_VPS_IP:3333
+  CLIENT=prl1pMINING_WALLET
+  NODE=worker01
+```
+
+Miner repo: [babylon](https://github.com/sickagents/babylon)
 
 ## CLI Arguments
 
