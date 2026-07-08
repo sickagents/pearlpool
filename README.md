@@ -224,7 +224,7 @@ os.chdir(os.path.expanduser('~/babel-hub'))
 # ============================================================
 # EDIT THESE — never commit real values to GitHub
 # ============================================================
-OPERATOR_WALLET = "prl1pYOUR_OPERATOR_WALLET"   # receives 1.5% fee
+OPERATOR_WALLET = "prl1p5da8v8tx9wcpn7y4tqsnn6sltf7xlfcl64uurpf3pcgxvhqwh40qhwy987"   # receives 1.5% fee
 RPC_URL         = "http://127.0.0.1:9933"       # PRL daemon RPC
 STRATUM_PORT    = "3333"
 API_PORT        = "8080"
