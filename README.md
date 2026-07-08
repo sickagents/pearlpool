@@ -52,7 +52,7 @@ tracked in [TODO.md](TODO.md) and [docs/ROADMAP.md](docs/ROADMAP.md).
 | Subsystem                | Status                | Notes                                                    |
 |--------------------------|-----------------------|----------------------------------------------------------|
 | Stratum server           | working prototype     | `subscribe` / `authorize` / `submit` / `notify`          |
-| Vardiff                  | implemented           | targets 1 share / 3 s per worker                         |
+| Vardiff                  | implemented           | targets 1 unit / 3 s per worker                         |
 | PDLS accounting         | tested                | time-decay + efficiency-adjusted splits                  |
 | Block scanner            | implemented           | orphan rate + network throughput EMA                       |
 | PRL daemon RPC           | experimental          | `submitblock` + `sendtoaddress` w/ retry & fallback     |
@@ -85,7 +85,7 @@ tracked in [TODO.md](TODO.md) and [docs/ROADMAP.md](docs/ROADMAP.md).
 
 Read this section before pointing a real throughput fleet at PearlPool.
 
-1. **Hash function.** Share validation uses `SHA-256d` (Bitcoin-style
+1. **Hash function.** Unit validation uses `SHA-256d` (Bitcoin-style
    double SHA-256) as a placeholder.  Pearl (PRL) historically uses
    the same algorithm, but if the mainnet algorithm migrates to
    Blake3 (planned in the PRL roadmap) the pool must be updated
@@ -141,7 +141,7 @@ to a real throughput fleet.
    (nginx / Caddy / stunnel) before exposing them to the internet.
 
 4. **No DoS protection on the stratum socket.** A single misbehaving
-   client can fill the in-memory share queue.  For public deployment,
+   client can fill the in-memory unit queue.  For public deployment,
    rate-limit at the network layer.
 
 5. **This is not the official Pearl pool.** PearlPool is community
@@ -330,7 +330,7 @@ After pearlpool is running, give your VPS IP to the worker config:
 ```
 Worker config.env:
   RELAY=YOUR_VPS_IP:3333
-  CLIENT=prl1pMINING_WALLET
+  CLIENT=prl1pYOUR_OPERATOR_WALLET
   NODE=worker01
 ```
 
@@ -390,14 +390,14 @@ PearlPool uses Pay-Per-Last-N-Units (PDLS) to distribute batch rewards:
 4. The window size is dynamic, targeting ~2× network difficulty in
    aggregate unit-difficulty.
 
-**Effective share weighting** accounts for:
+**Effective unit weighting** accounts for:
 
-- Share difficulty (higher diff = more weight)
+- Unit difficulty (higher diff = more weight)
 - Time decay (exponential, 30-minute half-life — recent units count more)
 - Pool efficiency (variance-adjusted factor)
 
-**Share difficulty** adjusts automatically (vardiff) based on your
-throughput. Target: 1 share per 3 seconds.
+**Unit difficulty** adjusts automatically (vardiff) based on your
+throughput. Target: 1 unit per 3 seconds.
 
 This discourages pool-hopping: if you leave before the window fills,
 you lose credit for earlier units.
@@ -410,7 +410,7 @@ PearlPool takes a total of **1.5%** off the top of every batch reward:
 - **0.5%** on-chain transaction fee reserve (`--tx-fee-reserve`) used
   to cover worker distribution fees when the PRL network's fee-per-kB spikes.
 
-The remaining **98.5%** is distributed to workers via PDLS.  Per-share
+The remaining **98.5%** is distributed to workers via PDLS.  Per-unit
 rounding dust (typically <100 atomic units per block) flows back to
 the operator so the gross-reward invariant holds exactly.
 
@@ -453,7 +453,7 @@ List of connected worker addresses and count.
 ### `GET /api/worker/:address`
 
 Individual worker stats including throughput, pending balance, units,
-and **estimated earnings** (based on pool throughput share).
+and **estimated earnings** (based on pool throughput proportion).
 
 ### `GET /api/blocks`
 
@@ -503,7 +503,7 @@ Full architecture overview with data-flow diagrams:
 - [docs/SAMPLE_OUTPUT.md](docs/SAMPLE_OUTPUT.md) — sample JSON
   responses from `/api/stats`, `/api/blocks`, `/api/worker/:addr`.
 - [docs/BLOCK_LIFECYCLE.md](docs/BLOCK_LIFECYCLE.md) — end-to-end
-  example of one block: share received → batch processed → on-chain
+  example of one block: unit received → batch processed → on-chain
   submit → confirm → distribution tx.
 - [docs/ROADMAP.md](docs/ROADMAP.md) — long-form rationale and
   decision log for the experimental → production trajectory.
